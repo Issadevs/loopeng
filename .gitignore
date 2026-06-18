@@ -1,0 +1,14 @@
+node_modules
+dist
+*.log
+.DS_Store
+.worktrees/
+.claude/
+docs/loop-engineering-context.md
+docs/plans/
+specs/
+scripts/
+
+# local agent/Claude dev guides — not shipped with the app
+CLAUDE.md
+AGENTS.md

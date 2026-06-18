@@ -1,0 +1,295 @@
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+
+import type { Candidate, Proposal } from "./types.js";
+import {
+  addToRegistry,
+  ensureDirs,
+  getProposal,
+  inRegistry,
+  listProposals,
+  loopengHome,
+  readJson,
+  saveProposal,
+  setProposalStatus,
+  writeJsonAtomic,
+} from "./state.js";
+import { runEngine, type InferenceExecutor as LlmRunner } from "./engine.js";
+import { appendEvent } from "./events.js";
+import { generateBundle } from "./generator.js";
+import { generateToolSpec } from "./toolgen.js";
+import { resolveEvidence } from "./evidence.js";
+import { type InstallContext, uninstallLoop, validateLoopId } from "./installers/shared.js";
+import { installClaudeCodeLoop } from "./installers/claude-code.js";
+import { installCodexLoop } from "./installers/codex.js";
+import { VOICE } from "./companion/voice.js";
+
+// ── Dependency injection ─────────────────────────────────────────────────────
+
+export type ActionResult = { ok: true } | { ok: false; reason: string };
+
+export interface CliDeps {
+  runner: LlmRunner;
+  exec: (cmd: string, args: string[]) => Promise<{ code: number; out: string }>;
+  now: () => string;
+  homedir: () => string;
+  out: (line: string) => void;
+}
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const CLAUDE_CONFIG_DIR = ".claude";
+const CLAUDE_SETTINGS_FILE = "settings.json";
+const MACOS_LAUNCH_DIR = "Library";
+const MACOS_AGENTS_DIR = "LaunchAgents";
+
+// ── Path helpers ─────────────────────────────────────────────────────────────
+
+export function claudeSettingsPath(deps: CliDeps): string {
+  return join(deps.homedir(), CLAUDE_CONFIG_DIR, CLAUDE_SETTINGS_FILE);
+}
+
+export function launchAgentsDir(deps: CliDeps): string {
+  return join(deps.homedir(), MACOS_LAUNCH_DIR, MACOS_AGENTS_DIR);
+}
+
+export function installContext(deps: CliDeps): InstallContext {
+  return {
+    claudeSettingsPath: claudeSettingsPath(deps),
+    launchAgentsDir: launchAgentsDir(deps),
+    exec: deps.exec,
+  };
+}
+
+function bundlesDir(): string {
+  return join(loopengHome(), "bundles");
+}
+
+export function bundleDirFor(proposal: Proposal | undefined, proposalId: string): string {
+  return proposal?.bundleDir ?? join(bundlesDir(), proposalId);
+}
+
+function nowMs(deps: CliDeps): number {
+  return new Date(deps.now()).getTime();
+}
+
+// ── scan helpers ─────────────────────────────────────────────────────────────
+
+function readDigests(): { digests: string; knownSessionIds: string[] } {
+  const dir = join(loopengHome(), "digests");
+  if (!existsSync(dir)) {
+    return { digests: "", knownSessionIds: [] };
+  }
+
+  const files = readdirSync(dir, { withFileTypes: true }).filter(
+    (entry) => entry.isFile() && entry.name.endsWith(".txt"),
+  );
+
+  const knownSessionIds = files.map((entry) => entry.name.slice(0, -".txt".length));
+  const digests = files
+    .map((entry) => readFileSync(join(dir, entry.name), "utf8"))
+    .join("\n");
+
+  return { digests, knownSessionIds };
+}
+
+function patternMemoryPath(): string {
+  return join(loopengHome(), "log", "pattern-memory.txt");
+}
+
+// ── scan ─────────────────────────────────────────────────────────────────────
+
+export async function scanAction(deps: CliDeps): Promise<ActionResult> {
+  try {
+    ensureDirs();
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    return { ok: false, reason: `failed to ensure loopeng dirs: ${reason}` };
+  }
+
+  const { digests, knownSessionIds } = readDigests();
+  const installed = readJson<string[]>(join(loopengHome(), "registry", "installed.json")) ?? [];
+  const dismissed = readJson<string[]>(join(loopengHome(), "registry", "dismissed.json")) ?? [];
+
+  const memPath = patternMemoryPath();
+  const patternMemory = existsSync(memPath) ? readFileSync(memPath, "utf8") : "";
+
+  let output;
+  try {
+    output = await runEngine({
+      digests,
+      knownSessionIds,
+      installed,
+      dismissed,
+      patternMemory,
+      runner: deps.runner,
+    });
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    appendEvent("scan", `scan failed: ${reason}`, deps.now());
+    return { ok: false, reason: `scan engine error: ${reason}` };
+  }
+
+  if (output.skipped) {
+    appendEvent("scan", "scan skipped — daily token budget reached", deps.now());
+    deps.out("token budget reached — skipped");
+    return { ok: true };
+  }
+
+  let saved = 0;
+  for (const candidate of output.candidates) {
+    if (getProposal(candidate.id) !== undefined) {
+      continue;
+    }
+    if (inRegistry("installed", candidate.id) || inRegistry("dismissed", candidate.id)) {
+      continue;
+    }
+    saveProposal({ candidate, status: "pending", createdAt: deps.now() });
+    saved += 1;
+  }
+
+  appendEvent("scan", `scan complete: ${saved} new proposal(s)`, deps.now());
+
+  if (output.memoryUpdates.length > 0) {
+    const existing = existsSync(memPath) ? readFileSync(memPath, "utf8") : "";
+    const appended = existing + output.memoryUpdates.map((line) => `${line}\n`).join("");
+    mkdirSync(join(loopengHome(), "log"), { recursive: true });
+    writeFileSync(memPath, appended, "utf8");
+  }
+
+  deps.out(saved > 0 ? VOICE.proposalNudge(saved) : VOICE.noProposals());
+  for (const warning of output.warnings) {
+    deps.out(`⚠ ${warning}`);
+  }
+  return { ok: true };
+}
+
+// ── approve ──────────────────────────────────────────────────────────────────
+
+export async function approveAction(deps: CliDeps, proposal: Proposal): Promise<ActionResult> {
+  const candidate: Candidate = proposal.candidate;
+  let result;
+  try {
+    result = await generateBundle(candidate, {
+      runner: deps.runner,
+      bundlesDir: bundlesDir(),
+      now: deps.now(),
+    });
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    appendEvent("error", `bundle generation threw for ${candidate.id}: ${reason}`, deps.now());
+    return { ok: false, reason };
+  }
+
+  if (!result.ok) {
+    appendEvent(
+      "error",
+      `bundle generation failed for ${candidate.id}: ${result.reason}`,
+      deps.now(),
+    );
+    return { ok: false, reason: result.reason };
+  }
+
+  const ctx = installContext(deps);
+  try {
+    if (candidate.suggestedTool === "claude-code") {
+      await installClaudeCodeLoop(result.bundleDir, ctx);
+    } else {
+      await installCodexLoop(result.bundleDir, ctx);
+    }
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    appendEvent("error", `installation failed for ${candidate.id}: ${reason}`, deps.now());
+    return { ok: false, reason: `installation failed: ${reason}` };
+  }
+
+  addToRegistry("installed", candidate.id);
+  const stored = getProposal(candidate.id) ?? proposal;
+  saveProposal({ ...stored, status: "approved", bundleDir: result.bundleDir });
+  appendEvent("approve", `approved + installed "${candidate.id}"`, deps.now());
+
+  // Best-effort: also synthesise a callable MCP tool from the workflow so future
+  // agents can run it via `loopeng mcp-tools`. A failure here never unwinds the
+  // approved loop — the loop.md install above already succeeded.
+  try {
+    const tool = await generateToolSpec(candidate, {
+      runner: deps.runner,
+      bundleDir: result.bundleDir,
+      evidence: resolveEvidence(candidate),
+    });
+    if (tool.ok) {
+      appendEvent("approve", `generated MCP tool "${tool.spec.name}" for "${candidate.id}"`, deps.now());
+    } else {
+      appendEvent("error", `MCP tool generation skipped for ${candidate.id}: ${tool.reason}`, deps.now());
+    }
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    appendEvent("error", `MCP tool generation threw for ${candidate.id}: ${reason}`, deps.now());
+  }
+
+  return { ok: true };
+}
+
+// ── uninstall ────────────────────────────────────────────────────────────────
+
+export async function uninstallAction(deps: CliDeps, id: string): Promise<ActionResult> {
+  try {
+    validateLoopId(id);
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+
+  const dir = bundleDirFor(getProposal(id), id);
+
+  try {
+    await uninstallLoop(dir, installContext(deps));
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    appendEvent("error", `uninstall failed for ${id}: ${reason}`, deps.now());
+    return { ok: false, reason: `uninstall failed: ${reason}` };
+  }
+
+  const registryFile = join(loopengHome(), "registry", "installed.json");
+  const installed = readJson<string[]>(registryFile) ?? [];
+  writeJsonAtomic(registryFile, installed.filter((entry) => entry !== id));
+
+  setProposalStatus(id, "dismissed");
+  appendEvent("uninstall", `uninstalled "${id}"`, deps.now());
+  return { ok: true };
+}
+
+// ── dismiss ──────────────────────────────────────────────────────────────────
+
+export async function dismissAction(deps: CliDeps, proposal: Proposal): Promise<ActionResult> {
+  try {
+    addToRegistry("dismissed", proposal.candidate.id);
+    setProposalStatus(proposal.candidate.id, "dismissed");
+    appendEvent("dismiss", `dismissed "${proposal.candidate.id}"`, deps.now());
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+  return { ok: true };
+}
+
+// ── snooze ───────────────────────────────────────────────────────────────────
+
+const SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
+
+export async function snoozeAction(deps: CliDeps, proposal: Proposal): Promise<ActionResult> {
+  try {
+    const id = proposal.candidate.id;
+    const snoozedUntil = new Date(nowMs(deps) + SNOOZE_MS).toISOString();
+    const stored = getProposal(id) ?? proposal;
+    saveProposal({ ...stored, status: "snoozed", snoozedUntil });
+    appendEvent("snooze", `snoozed "${id}" for 7 days`, deps.now());
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+  return { ok: true };
+}
