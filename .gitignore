@@ -4,6 +4,7 @@ dist
 .DS_Store
 .worktrees/
 .claude/
+.idea/
 docs/loop-engineering-context.md
 docs/plans/
 specs/
