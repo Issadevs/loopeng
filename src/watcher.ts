@@ -34,6 +34,13 @@ export interface TickResult {
   companionSpawned: boolean;
 }
 
+export interface WatchOptions {
+  // Open the ambient companion window when new activity is digested. Defaults
+  // to true (the launchd daemon). The in-dashboard watcher sets this false,
+  // since the dashboard is already the foreground UI.
+  spawnCompanion?: boolean;
+}
+
 interface WatchState {
   files: Record<string, number>;
 }
@@ -49,7 +56,7 @@ interface TranscriptFile {
   source: TranscriptSource;
 }
 
-export async function tick(ctx: WatchContext): Promise<TickResult> {
+export async function tick(ctx: WatchContext, opts: WatchOptions = {}): Promise<TickResult> {
   const markersConsumed = consumeMarkers();
   const statePath = join(loopengHome(), "log", "watch.json");
   const state = readJson<WatchState>(statePath) ?? { files: {} };
@@ -90,7 +97,9 @@ export async function tick(ctx: WatchContext): Promise<TickResult> {
   }
 
   const companionSpawned =
-    markersConsumed > 0 || digested.length > 0 ? maybeSpawnCompanion(ctx) : false;
+    (opts.spawnCompanion ?? true) && (markersConsumed > 0 || digested.length > 0)
+      ? maybeSpawnCompanion(ctx)
+      : false;
 
   if (companionSpawned) {
     appendEvent("spawn", "opened companion window", ctx.now());
@@ -99,12 +108,12 @@ export async function tick(ctx: WatchContext): Promise<TickResult> {
   return { digested, markersConsumed, companionSpawned };
 }
 
-export function startWatcher(ctx: WatchContext): { stop(): void } {
-  void tick(ctx);
+export function startWatcher(ctx: WatchContext, opts: WatchOptions = {}): { stop(): void } {
+  void tick(ctx, opts);
 
   const intervalMs = loadConfig().pollIntervalMin * 60 * 1000;
   const interval = setInterval(() => {
-    void tick(ctx);
+    void tick(ctx, opts);
   }, intervalMs);
   interval.unref();
 
@@ -119,7 +128,7 @@ export function startWatcher(ctx: WatchContext): { stop(): void } {
 
     debounce = setTimeout(() => {
       debounce = undefined;
-      void tick(ctx);
+      void tick(ctx, opts);
     }, 2000);
     debounce.unref();
   });

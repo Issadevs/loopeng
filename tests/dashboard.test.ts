@@ -23,6 +23,8 @@ function proposal(id: string, summary = "Run the same verification command befor
 
 const emptyData: DashboardData = {
   sessions: 0,
+  tools: [],
+  scope: "all",
   daemon: "running",
   spendToday: 0,
   spendCap: 100,
@@ -33,6 +35,8 @@ const emptyData: DashboardData = {
 
 const fullData: DashboardData = {
   sessions: 3,
+  tools: ["claude-code", "codex"],
+  scope: "all",
   daemon: "running",
   spendToday: 7,
   spendCap: 100,
@@ -68,6 +72,10 @@ function expectGeometry(rendered: string, cols: number, rows: number): void {
   for (const line of lines) expect(line.length).toBe(cols);
 }
 
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
 describe("dashboard renderer geometry", () => {
   it("renders exact geometry across states and sizes", () => {
     const states = [
@@ -82,11 +90,13 @@ describe("dashboard renderer geometry", () => {
     }
   });
 
-  it("renders the bigger-window card below minimum size", () => {
-    for (const [cols, rows] of [[59, 16], [60, 15]] as const) {
-      const rendered = renderDashboard(state(), cols, rows);
+  it("renders a compact dashboard below the full layout size", () => {
+    for (const [cols, rows] of [[59, 16], [60, 15], [42, 10], [30, 8]] as const) {
+      const rendered = renderDashboard(state({ data: fullData }), cols, rows);
       expectGeometry(rendered, cols, rows);
-      expect(rendered).toContain("loopEng needs a bigger window (60×16+)");
+      expect(rendered).toContain("loopEng");
+      expect(rendered).toContain("[inbox]");
+      expect(rendered).not.toContain("loopEng needs a bigger window");
     }
   });
 });
@@ -94,6 +104,11 @@ describe("dashboard renderer geometry", () => {
 describe("deriveMood", () => {
   it("follows the mood priority table", () => {
     expect(deriveMood(state({ flash: "🌱 installed" }))).toBe("celebrate");
+    expect(deriveMood(state({ flash: "daemon resumed" }))).toBe("celebrate");
+    expect(deriveMood(state({ flash: "scan complete" }))).toBe("celebrate");
+    expect(deriveMood(state({ data: { ...emptyData, sessions: 1 }, flash: 'uninstalled "x"' }))).toBe("idle");
+    expect(deriveMood(state({ flash: 'approve failed: bundle "x" not found' }))).toBe("grumpy");
+    expect(deriveMood(state({ flash: "error: something broke" }))).toBe("grumpy");
     expect(deriveMood(state({ data: fullData, confirm: { action: "approve", targetId: "candidate-1" } }))).toBe("attentive");
     expect(deriveMood(state({ data: fullData }))).toBe("perky");
     expect(deriveMood(state({ data: emptyData, flash: undefined }))).toBe("sleepy");
@@ -215,5 +230,13 @@ describe("dashboard render content", () => {
 
     expect(rendered).toContain('dismiss "candidate-1"? [y]es [n]o');
     expect(rendered).toContain("[y]es [n]o");
+  });
+
+  it("can render a colorized dashboard without changing visible geometry", () => {
+    const rendered = renderDashboard(state({ data: fullData }), 80, 24, { color: true });
+
+    expect(rendered).toContain("\x1b[");
+    expectGeometry(stripAnsi(rendered), 80, 24);
+    expect(stripAnsi(rendered)).toContain("[inbox] (2)");
   });
 });

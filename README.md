@@ -116,7 +116,7 @@ Keys:
 | `p` | Pause / resume the daemon |
 | `q` | Quit |
 
-The dashboard resizes with your terminal. It needs at least **60×16**; below that it shows a hint to grow the window.
+The dashboard resizes with your terminal. At **60×16** and above it uses the full two-column layout; in tighter panes it switches to a compact one-panel view. In an interactive terminal, it uses a restrained color theme for status, focus, and actions; logs and non-TTY output stay plain, and `NO_COLOR=1` disables color.
 
 ---
 

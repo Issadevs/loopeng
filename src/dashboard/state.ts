@@ -1,6 +1,6 @@
 import type { Proposal } from "../types.js";
 
-export type Mood = "sleepy" | "idle" | "perky" | "attentive" | "celebrate" | "working";
+export type Mood = "sleepy" | "idle" | "perky" | "attentive" | "celebrate" | "grumpy" | "working";
 export type Focus = "inbox" | "loops" | "activity";
 
 export interface EventRow { t: string; kind: string; msg: string; }
@@ -8,6 +8,8 @@ export interface LoopRow { id: string; kind: string; tool: string; }
 
 export interface DashboardData {
   sessions: number;
+  tools: string[]; // agents detected among active sessions, e.g. ["claude-code", "codex"]
+  scope: "all" | "project"; // whether loopEng is watching the whole machine or one project
   daemon: "running" | "paused" | "not-installed";
   spendToday: number;
   spendCap: number;
@@ -46,12 +48,26 @@ export type Effect =
   | { type: "toggle-pause" };
 
 export function deriveMood(s: DashboardState): Mood {
-  if (s.flash?.startsWith("🌱")) return "celebrate";
+  if (s.flash && isBadNews(s.flash)) return "grumpy"; // bad news → cutely cross
+  if (s.flash && isGoodNews(s.flash)) return "celebrate"; // good news → big smile
   if (s.busy) return "working";
   if (s.confirm) return "attentive";
   if (s.data.proposals.length > 0) return "perky";
   if (s.data.sessions === 0) return "sleepy";
   return "idle";
+}
+
+// A flash counts as bad news when an action didn't go through. The mascot
+// reacts to these by frowning.
+function isBadNews(flash: string): boolean {
+  return /failed|error:|not found/.test(flash);
+}
+
+// A flash counts as good news on a happy outcome: the 🌱 install banner, a loop
+// installed, the daemon resumed, or a scan that completed. Word boundaries keep
+// "uninstalled" from sneaking in as a false positive.
+function isGoodNews(flash: string): boolean {
+  return flash.startsWith("🌱") || /\b(installed|resumed|complete)\b/.test(flash);
 }
 
 export function reduce(

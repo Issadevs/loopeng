@@ -16,8 +16,9 @@ import {
   uninstallAction,
   type CliDeps
 } from "../actions.js";
-import { getProposal, loadConfig, loopengHome, readJson } from "../state.js";
+import { getProposal, loadConfig, loopengHome, readJson, watchScope } from "../state.js";
 import { readEvents } from "../events.js";
+import { defaultContext, startWatcher } from "../watcher.js";
 import { readBundleManifest, readTrigger } from "../installers/shared.js";
 import {
   reduce,
@@ -32,7 +33,7 @@ import { renderDashboard } from "./render.js";
 // Assemble the live DashboardData from disk + launchctl. Pure read: performs
 // no mutations.
 export async function assembleData(deps: CliDeps): Promise<DashboardData> {
-  const { proposals, sessions } = readCompanionState(deps);
+  const { proposals, sessions, tools } = readCompanionState(deps);
 
   const plist = daemonPlistPath(deps);
   let daemon: DashboardData["daemon"];
@@ -60,7 +61,23 @@ export async function assembleData(deps: CliDeps): Promise<DashboardData> {
 
   const events = readEvents(50).map((e) => ({ t: e.t, kind: e.kind, msg: e.msg }));
 
-  return { sessions, daemon, spendToday, spendCap, proposals, loops, events };
+  return { sessions, tools, scope: watchScope(), daemon, spendToday, spendCap, proposals, loops, events };
+}
+
+// A cheap fingerprint of the data that matters on screen, so the live refresh
+// can skip re-rendering when nothing meaningful changed.
+function dataSignature(d: DashboardData): string {
+  return [
+    d.sessions,
+    d.tools.join("+"),
+    d.daemon,
+    d.spendToday,
+    d.spendCap,
+    d.proposals.map((p) => p.candidate.id).join(","),
+    d.loops.map((l) => l.id).join(","),
+    d.events.length,
+    d.events[d.events.length - 1]?.t ?? ""
+  ].join("|");
 }
 
 // Execute one reducer Effect against the real CLI actions and return the flash
@@ -132,33 +149,90 @@ export function runDashboard(deps: CliDeps, startFocus?: Focus): Promise<void> {
         spinnerFrame: 0
       };
 
-      const isTty = process.stdin.isTTY === true;
+      const isInteractive = process.stdin.isTTY === true && process.stdout.isTTY === true;
+      const useColor =
+        isInteractive && process.env.NO_COLOR === undefined && process.env.TERM !== "dumb";
       let busy = false;
 
       const render = (): void => {
         const cols = process.stdout.columns ?? 80;
         const rows = process.stdout.rows ?? 24;
-        process.stdout.write("\x1b[2J\x1b[H" + renderDashboard(state, cols, rows) + "\n");
+        process.stdout.write("\x1b[H\x1b[2J" + renderDashboard(state, cols, rows, { color: useColor }));
       };
 
+      if (!isInteractive) {
+        const cols = process.stdout.columns ?? 80;
+        const rows = process.stdout.rows ?? 24;
+        process.stdout.write(`${renderDashboard(state, cols, rows)}\n`);
+        resolve();
+        return;
+      }
+
       const tick = setInterval(() => {
+        if (!state.busy) return;
         const next = reduce(state, { kind: "tick" });
         state = next.state;
         render();
       }, 333);
       tick.unref();
 
+      // Run the session watcher in-process while the dashboard is open, so
+      // Claude Code and Codex sessions are picked up live without needing the
+      // separate launchd daemon (this is what makes `npm run dev` "just work").
+      // The dashboard is the foreground UI, so don't spawn the companion window.
+      const watcher = startWatcher(defaultContext(), { spawnCompanion: false });
+
+      // Pull fresh data from disk on a short cadence so sessions the watcher
+      // just digested (and any new proposals) show up on their own. Only
+      // re-render when something actually changed, to avoid periodic flicker.
+      let refreshing = false;
+      let lastSig = dataSignature(data);
+      const refresh = setInterval(() => {
+        if (busy || state.busy || refreshing) return;
+        refreshing = true;
+        void assembleData(deps)
+          .then((fresh) => {
+            const sig = dataSignature(fresh);
+            if (sig === lastSig) return;
+            lastSig = sig;
+            apply({ kind: "data", data: fresh });
+            render();
+          })
+          .catch(() => {
+            // A failing refresh must not disturb the UI — keep the last data.
+          })
+          .finally(() => {
+            refreshing = false;
+          });
+      }, 5000);
+      refresh.unref();
+
       const onResize = (): void => render();
 
+      // Restore the terminal: show the cursor and leave the alternate screen,
+      // bringing back exactly what was on screen before the dashboard opened.
+      // Idempotent, and also wired to process exit as a safety net so an
+      // unexpected termination can't leave the terminal stuck in the TUI.
+      let restored = false;
+      const restoreTerminal = (): void => {
+        if (restored) return;
+        restored = true;
+        process.stdout.write(CURSOR_SHOW + ALT_SCREEN_OFF);
+      };
+      process.once("exit", restoreTerminal);
+
+      let cleanedUp = false;
       const cleanup = (): void => {
+        if (cleanedUp) return;
+        cleanedUp = true;
         clearInterval(tick);
+        clearInterval(refresh);
+        watcher.stop();
         process.stdout.removeListener("resize", onResize);
         process.stdin.removeListener("data", onData);
-        if (isTty) {
-          process.stdin.setRawMode(false);
-        }
+        process.stdin.setRawMode(false);
         process.stdin.pause();
-        process.stdout.write("\n");
+        restoreTerminal();
       };
 
       const apply = (action: Parameters<typeof reduce>[1]): void => {
@@ -217,16 +291,25 @@ export function runDashboard(deps: CliDeps, startFocus?: Focus): Promise<void> {
         render();
       };
 
-      if (isTty) {
-        process.stdin.setRawMode(true);
-      }
+      process.stdin.setRawMode(true);
       process.stdin.resume();
       process.stdin.on("data", onData);
       process.stdout.on("resize", onResize);
+      // Switch to the alternate screen + hide the cursor before the first paint.
+      process.stdout.write(ALT_SCREEN_ON + CURSOR_HIDE);
       render();
     })();
   });
 }
+
+// Terminal control: render the dashboard on the alternate screen buffer (like
+// vim / less / htop) so repaints update in place and never pollute the scroll-
+// back. Without this, every spinner frame is left behind in history, which
+// looks like the app is relaunching itself over and over.
+const ALT_SCREEN_ON = "\x1b[?1049h";
+const ALT_SCREEN_OFF = "\x1b[?1049l";
+const CURSOR_HIDE = "\x1b[?25l";
+const CURSOR_SHOW = "\x1b[?25h";
 
 function normalizeKey(seq: string): string | null {
   switch (seq) {
