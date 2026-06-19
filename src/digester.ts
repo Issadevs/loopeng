@@ -86,6 +86,36 @@ export function digestSession(record: SessionRecord): string {
   return lines.join("\n");
 }
 
+export interface DigestHeader {
+  sessionId: string;
+  tool: string;
+  cwd: string;
+  endedAtMs?: number; // undefined when the header has no parseable end= time
+}
+
+/**
+ * Parse the first (header) line of a digest back into its fields. Kept next to
+ * digestSession so the read and write formats stay in sync. Values are read up
+ * to the next space, matching the space-delimited `key=value` header layout.
+ */
+export function parseDigestHeader(firstLine: string): DigestHeader {
+  const field = (key: string): string => {
+    const match = firstLine.match(new RegExp(`\\b${key}=(\\S+)`));
+    return match ? match[1] : "";
+  };
+
+  const sessionId = firstLine.match(/^=== session (\S+)/)?.[1] ?? "";
+  const end = field("end");
+  const endedAt = end ? new Date(end).getTime() : Number.NaN;
+
+  return {
+    sessionId,
+    tool: field("tool"),
+    cwd: field("cwd"),
+    endedAtMs: Number.isNaN(endedAt) ? undefined : endedAt
+  };
+}
+
 /**
  * Reduce many sessions, sorted by startedAt (then sessionId for full
  * determinism), separated by a blank line.

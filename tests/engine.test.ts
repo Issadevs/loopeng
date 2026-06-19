@@ -45,27 +45,38 @@ describe("runEngine", () => {
     expect([...output.candidates, ...output.watchlist].some((item) => item.id === "already-installed")).toBe(false);
   });
 
-  it("retries once with validation error context when the first response is garbage", async () => {
+  it("calls the runner once on a valid response and does not retry", async () => {
     const calls: string[] = [];
     const runner: LlmRunner = async (prompt) => {
       calls.push(prompt);
-      return calls.length === 1
-        ? "not json"
-        : JSON.stringify({
-            candidates: [candidate("promoted")],
-            watchlist: [],
-            memoryUpdates: []
-          });
+      return JSON.stringify({
+        candidates: [candidate("promoted")],
+        watchlist: [],
+        memoryUpdates: []
+      });
     };
 
     const output = await runEngine(baseInput({ runner }));
 
     expect(output.candidates.map((item) => item.id)).toEqual(["promoted"]);
-    expect(calls).toHaveLength(2);
-    expect(calls[1]).toContain("previous response was invalid");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).not.toContain("previous response was invalid");
   });
 
-  it("throws EngineError after exactly three invalid responses", async () => {
+  it("throws EngineError on a single invalid response without retrying", async () => {
+    let calls = 0;
+    const runner: LlmRunner = async () => {
+      calls += 1;
+      return "still garbage";
+    };
+
+    await expect(runEngine(baseInput({ runner }))).rejects.toBeInstanceOf(ProcessingError);
+    expect(calls).toBe(1);
+  });
+
+  it("honors scanMaxAttempts from config for the retry count", async () => {
+    writeJsonAtomic(join(home, "config.json"), { scanMaxAttempts: 3 });
+
     let calls = 0;
     const runner: LlmRunner = async () => {
       calls += 1;

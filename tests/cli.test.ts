@@ -191,6 +191,59 @@ describe("readCompanionState", () => {
     const ids = proposals.map((p) => p.candidate.id).sort();
     expect(ids).toEqual(["p-pending", "p-snooze-expired"]);
   });
+
+  it("counts sessions by their real end= activity time, not the digest mtime", () => {
+    const dir = join(loopengHome(), "digests");
+    mkdirSync(dir, { recursive: true });
+
+    const nowMs = new Date(NOW).getTime();
+    const recent = new Date(nowMs - 60 * 60 * 1000).toISOString(); // 1h ago → within 4h
+    const old = new Date(nowMs - 9 * 60 * 60 * 1000).toISOString(); // 9h ago → outside 4h
+
+    // All three are written "now" (fresh mtime); only the header end= should
+    // decide recency. The old session must NOT count despite its fresh mtime.
+    writeFileSync(join(dir, "recent.txt"), `=== session recent end=${recent}\nU ${recent} hi`, "utf8");
+    writeFileSync(join(dir, "old.txt"), `=== session old end=${old}\nU ${old} hi`, "utf8");
+    // No parseable header → falls back to the (fresh) file mtime → counts.
+    writeFileSync(join(dir, "nohdr.txt"), "no header here\n", "utf8");
+
+    const { sessions } = readCompanionState(makeDeps());
+    expect(sessions).toBe(2);
+  });
+
+  it("scopes the count to the current project and reports detected agents", () => {
+    const dir = join(loopengHome(), "digests");
+    mkdirSync(dir, { recursive: true });
+    const recent = new Date(new Date(NOW).getTime() - 60 * 60 * 1000).toISOString();
+
+    writeFileSync(
+      join(dir, "here.txt"),
+      `=== session here tool=claude-code cwd=/work/projA end=${recent}\nU ${recent} hi`,
+      "utf8"
+    );
+    writeFileSync(
+      join(dir, "elsewhere.txt"),
+      `=== session elsewhere tool=codex cwd=/work/projB end=${recent}\nU ${recent} hi`,
+      "utf8"
+    );
+
+    // scope "all": both projects count, both agents detected.
+    const all = readCompanionState(makeDeps());
+    expect(all.sessions).toBe(2);
+    expect(all.tools).toEqual(["claude-code", "codex"]);
+
+    // scope "project": only the current project's session counts.
+    process.env.LOOPENG_SCOPE = "project";
+    process.env.LOOPENG_PROJECT = "/work/projA";
+    try {
+      const scoped = readCompanionState(makeDeps());
+      expect(scoped.sessions).toBe(1);
+      expect(scoped.tools).toEqual(["claude-code"]);
+    } finally {
+      delete process.env.LOOPENG_SCOPE;
+      delete process.env.LOOPENG_PROJECT;
+    }
+  });
 });
 
 describe("markAction", () => {
@@ -251,11 +304,17 @@ describe("scanAction", () => {
 
     expect(lines).toContain("✨ i spotted 1 loop idea for you");
 
-    // Rerun: cand-new already has a proposal file -> 0 new.
+    // Rerun with no new sessions: short-circuits before touching the engine.
     lines = [];
-    await scanAction(makeDeps({ runner: async () => engineResponse }));
+    await scanAction(
+      makeDeps({
+        runner: async () => {
+          throw new Error("engine must not run when nothing is new");
+        }
+      })
+    );
     expect(listProposals().map((p) => p.candidate.id)).toEqual(["cand-new"]);
-    expect(lines).toContain("all quiet — your loops have it covered");
+    expect(lines).toContain("nothing new to scan — all sessions already analyzed");
   });
 });
 

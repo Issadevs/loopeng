@@ -10,16 +10,19 @@ import { join } from "node:path";
 import type { Candidate, Proposal } from "./types.js";
 import {
   addToRegistry,
+  cwdInScope,
   ensureDirs,
   getProposal,
   inRegistry,
   listProposals,
+  loadConfig,
   loopengHome,
   readJson,
   saveProposal,
   setProposalStatus,
   writeJsonAtomic,
 } from "./state.js";
+import { parseDigestHeader } from "./digester.js";
 import { runEngine, type InferenceExecutor as LlmRunner } from "./engine.js";
 import { appendEvent } from "./events.js";
 import { generateBundle } from "./generator.js";
@@ -81,22 +84,61 @@ function nowMs(deps: CliDeps): number {
 
 // ── scan helpers ─────────────────────────────────────────────────────────────
 
-function readDigests(): { digests: string; knownSessionIds: string[] } {
+function analyzedPath(): string {
+  return join(loopengHome(), "registry", "analyzed.json");
+}
+
+// Gather the scan payload. Only digests for sessions not yet analyzed are sent
+// (oldest filename first, capped to MAX_SCAN_DIGEST_CHARS), so we never re-pay
+// for the whole history every scan. `knownSessionIds` stays the full set on
+// disk — it is the whitelist the engine uses to reject evidence citing a
+// session it has never seen, so it must not be narrowed to the payload.
+// `pending` is the ids actually included, to mark analyzed after a good scan.
+function readDigests(): { digests: string; knownSessionIds: string[]; pending: string[] } {
   const dir = join(loopengHome(), "digests");
   if (!existsSync(dir)) {
-    return { digests: "", knownSessionIds: [] };
+    return { digests: "", knownSessionIds: [], pending: [] };
   }
 
-  const files = readdirSync(dir, { withFileTypes: true }).filter(
-    (entry) => entry.isFile() && entry.name.endsWith(".txt"),
-  );
+  const names = readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".txt"))
+    .map((entry) => entry.name)
+    .sort();
 
-  const knownSessionIds = files.map((entry) => entry.name.slice(0, -".txt".length));
-  const digests = files
-    .map((entry) => readFileSync(join(dir, entry.name), "utf8"))
-    .join("\n");
+  const knownSessionIds = names.map((name) => name.slice(0, -".txt".length));
+  const analyzed = new Set(readJson<string[]>(analyzedPath()) ?? []);
 
-  return { digests, knownSessionIds };
+  // Cap how much digest text one scan sends to the engine (config
+  // `scanMaxDigestChars`, default 60k chars ≈ ~15k tokens), so a large backlog
+  // is processed across several smaller, faster, cheaper scans.
+  const maxChars = Math.max(1, loadConfig().scanMaxDigestChars);
+
+  const chunks: string[] = [];
+  const pending: string[] = [];
+  let size = 0;
+  for (const name of names) {
+    const id = name.slice(0, -".txt".length);
+    if (analyzed.has(id)) {
+      continue;
+    }
+    const text = readFileSync(join(dir, name), "utf8");
+    // Respect the active scope: when watching a single project, don't analyze
+    // (or pay for) sessions from other projects.
+    const header = parseDigestHeader(text.split("\n", 1)[0] ?? "");
+    if (!cwdInScope(header.cwd)) {
+      continue;
+    }
+    // Always include at least one digest so a single oversized session still
+    // makes progress rather than stalling the queue forever.
+    if (pending.length > 0 && size + text.length > maxChars) {
+      break;
+    }
+    chunks.push(text);
+    pending.push(id);
+    size += text.length;
+  }
+
+  return { digests: chunks.join("\n"), knownSessionIds, pending };
 }
 
 function patternMemoryPath(): string {
@@ -113,7 +155,16 @@ export async function scanAction(deps: CliDeps): Promise<ActionResult> {
     return { ok: false, reason: `failed to ensure loopeng dirs: ${reason}` };
   }
 
-  const { digests, knownSessionIds } = readDigests();
+  const { digests, knownSessionIds, pending } = readDigests();
+
+  // Nothing new since the last scan — don't spend a single token re-analyzing
+  // the same history.
+  if (pending.length === 0) {
+    appendEvent("scan", "scan skipped — no new sessions", deps.now());
+    deps.out("nothing new to scan — all sessions already analyzed");
+    return { ok: true };
+  }
+
   const installed = readJson<string[]>(join(loopengHome(), "registry", "installed.json")) ?? [];
   const dismissed = readJson<string[]>(join(loopengHome(), "registry", "dismissed.json")) ?? [];
 
@@ -141,6 +192,10 @@ export async function scanAction(deps: CliDeps): Promise<ActionResult> {
     deps.out("token budget reached — skipped");
     return { ok: true };
   }
+
+  // The engine ran on these sessions, so don't send them again next scan.
+  const analyzed = readJson<string[]>(analyzedPath()) ?? [];
+  writeJsonAtomic(analyzedPath(), [...new Set([...analyzed, ...pending])]);
 
   let saved = 0;
   for (const candidate of output.candidates) {

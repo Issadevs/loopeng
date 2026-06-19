@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   statSync,
   writeFileSync,
@@ -12,6 +13,7 @@ import { Command } from "commander";
 
 import type { Proposal } from "./types.js";
 import {
+  cwdInScope,
   ensureDirs,
   getProposal,
   listProposals,
@@ -21,6 +23,7 @@ import {
   setProposalStatus,
   writeJsonAtomic,
 } from "./state.js";
+import { parseDigestHeader } from "./digester.js";
 import { defaultRunner } from "./engine.js";
 import { appendEvent } from "./events.js";
 import { startWatcher, defaultContext } from "./watcher.js";
@@ -204,7 +207,11 @@ export async function daemonAction(deps: CliDeps): Promise<void> {
   });
 }
 
-export function readCompanionState(deps: CliDeps): { proposals: Proposal[]; sessions: number } {
+export function readCompanionState(deps: CliDeps): {
+  proposals: Proposal[];
+  sessions: number;
+  tools: string[];
+} {
   const now = new Date(deps.now()).getTime();
 
   const proposals = listProposals().filter((p) => {
@@ -223,25 +230,60 @@ export function readCompanionState(deps: CliDeps): { proposals: Proposal[]; sess
     return false;
   });
 
+  // Count the sessions loopEng is "watching": those that ended within the
+  // recency window AND fall inside the active scope (whole machine, or just the
+  // current project). Also collect which agents (claude-code / codex) are
+  // active so the dashboard can name what it detects.
   const digestsDir = join(loopengHome(), "digests");
+  const cutoff = now - loadConfig().recentWindowHours * 60 * 60 * 1000;
   let sessions = 0;
+  const tools = new Set<string>();
+
   if (existsSync(digestsDir)) {
-    const cutoff = now - 4 * 60 * 60 * 1000;
     for (const entry of readdirSync(digestsDir, { withFileTypes: true })) {
       if (!entry.isFile()) {
         continue;
       }
-      try {
-        if (statSync(join(digestsDir, entry.name)).mtimeMs >= cutoff) {
-          sessions += 1;
-        }
-      } catch {
-        // File vanished between readdir and stat — ignore.
+      const info = readDigestSummary(join(digestsDir, entry.name));
+      if (info === undefined || info.activeAt < cutoff || !cwdInScope(info.cwd)) {
+        continue;
+      }
+      sessions += 1;
+      if (info.tool !== "") {
+        tools.add(info.tool);
       }
     }
   }
 
-  return { proposals, sessions };
+  return { proposals, sessions, tools: [...tools].sort() };
+}
+
+// Pull the bits of a digest header the dashboard needs: when the session was
+// last active, its working dir (for scope), and which agent produced it. The
+// `end=` time is preferred over the digest file's mtime — a first-run back-fill
+// writes every digest "now", which would otherwise make the whole history look
+// like it happened today.
+function readDigestSummary(
+  path: string
+): { activeAt: number; cwd: string; tool: string } | undefined {
+  let firstLine: string;
+  try {
+    firstLine = readFileSync(path, "utf8").split("\n", 1)[0] ?? "";
+  } catch {
+    return undefined; // File vanished between readdir and read — ignore.
+  }
+
+  const header = parseDigestHeader(firstLine);
+  let activeAt = header.endedAtMs;
+  if (activeAt === undefined) {
+    try {
+      activeAt = statSync(path).mtimeMs;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return { activeAt, cwd: header.cwd, tool: header.tool };
 }
 
 export async function reviewAction(deps: CliDeps): Promise<void> {

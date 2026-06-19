@@ -1,5 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -251,6 +251,10 @@ describe("tools", () => {
 
   describe("scan", () => {
     it("returns error when the engine throws", async () => {
+      // A pending digest is required for the scan to reach the engine.
+      mkdirSync(join(loopengHome(), "digests"), { recursive: true });
+      writeFileSync(join(loopengHome(), "digests", "sess-1.txt"), "digest text", "utf8");
+
       await withClient(
         makeDeps({
           runner: async () => {

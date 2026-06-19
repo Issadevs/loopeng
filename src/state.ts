@@ -17,7 +17,11 @@ const APP_CONFIG_FILE = "config.json";
 const DEFAULT_CONFIG: LoopEngConfig = {
   companion: "auto",
   dailyTokenCap: 100000,
-  pollIntervalMin: 15
+  pollIntervalMin: 15,
+  scope: "all",
+  recentWindowHours: 4,
+  scanMaxAttempts: 1,
+  scanMaxDigestChars: 60000
 };
 
 export function loopengHome(): string {
@@ -97,6 +101,36 @@ export function loadConfig(): LoopEngConfig {
   const configFilePath = join(loopengHome(), APP_CONFIG_FILE);
   const loadedConfig = readJson<Partial<LoopEngConfig>>(configFilePath) ?? {};
   return { ...DEFAULT_CONFIG, ...loadedConfig };
+}
+
+// The active scope, with the LOOPENG_SCOPE env var winning over config for a
+// quick one-off toggle (e.g. `LOOPENG_SCOPE=project npm run dev`).
+export function watchScope(): "all" | "project" {
+  const env = process.env.LOOPENG_SCOPE;
+  if (env === "all" || env === "project") {
+    return env;
+  }
+  return loadConfig().scope;
+}
+
+// The directory treated as "the project" when scope is "project": where loopEng
+// was launched, overridable via LOOPENG_PROJECT.
+export function scopeRoot(): string {
+  return process.env.LOOPENG_PROJECT ?? process.cwd();
+}
+
+// Is a session's working directory within the active scope? Always true for
+// "all"; for "project" it must equal the project root or sit beneath it.
+export function cwdInScope(cwd: string): boolean {
+  if (watchScope() === "all") {
+    return true;
+  }
+  if (cwd === "") {
+    return false;
+  }
+  const root = scopeRoot();
+  const prefix = root.endsWith("/") ? root : `${root}/`;
+  return cwd === root || cwd.startsWith(prefix);
 }
 
 const LOOP_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;

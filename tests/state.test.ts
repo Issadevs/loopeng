@@ -89,7 +89,11 @@ describe("state", () => {
     expect(loadConfig()).toEqual({
       companion: "auto",
       dailyTokenCap: 100000,
-      pollIntervalMin: 15
+      pollIntervalMin: 15,
+      scope: "all",
+      recentWindowHours: 4,
+      scanMaxAttempts: 1,
+      scanMaxDigestChars: 60000
     });
   });
 

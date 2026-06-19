@@ -58,4 +58,11 @@ export interface LoopEngConfig {
   companion: "auto" | "manual" | "off";
   dailyTokenCap: number;           // default 100000
   pollIntervalMin: number;         // default 15
+  // What loopEng pays attention to:
+  //   "all"     — every Claude Code / Codex session on the machine
+  //   "project" — only sessions whose cwd is the project loopEng runs in
+  scope: "all" | "project";        // default "all"
+  recentWindowHours: number;       // a session counts as active within this window — default 4
+  scanMaxAttempts: number;         // LLM calls per scan (1 = no retry) — default 1
+  scanMaxDigestChars: number;      // max digest text sent per scan — default 60000 (~15k tokens)
 }

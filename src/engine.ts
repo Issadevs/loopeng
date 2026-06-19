@@ -161,7 +161,11 @@ function estimateTokens(prompt: string): number {
 async function callWithRetries(runner: InferenceExecutor, prompt: string): Promise<RawEngineResponse> {
   let validationError = "";
 
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  // How many times to call the LLM per scan (config `scanMaxAttempts`, default
+  // 1 = one shot, no retry). Floored at 1 so a bad config can't disable scans.
+  const maxAttempts = Math.max(1, loadConfig().scanMaxAttempts);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const attemptPrompt =
       attempt === 1
         ? prompt
@@ -175,7 +179,8 @@ async function callWithRetries(runner: InferenceExecutor, prompt: string): Promi
     }
   }
 
-  throw new ProcessingError(`LLM response stayed invalid after 3 attempts: ${validationError}`);
+  const tries = maxAttempts === 1 ? "1 attempt" : `${maxAttempts} attempts`;
+  throw new ProcessingError(`LLM response stayed invalid after ${tries}: ${validationError}`);
 }
 
 function validateResponse(value: unknown): RawEngineResponse {
