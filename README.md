@@ -19,7 +19,7 @@ loopEng is a **local meta-agent** that runs quietly in your terminal alongside C
    - a **loop** — `loop.md` operating instructions wired into Claude Code or Codex, and
    - a **callable MCP tool** — the same workflow as a parameterized command sequence your agents can invoke directly.
 
-You review proposals. You approve the ones that make sense. Everything stays on your machine — the only LLM calls go through your own `claude -p` binary. loopEng never phones home.
+You review proposals. You approve the ones that make sense. Everything stays on your machine — the only LLM calls go through your configured runner (`claude -p` by default). loopEng never phones home.
 
 > *"True productivity isn't typing faster; it's stopping the need to type the same thing twice."*
 
@@ -39,7 +39,7 @@ Claude Code / Codex sessions
   [digester] — compresses + redacts each session to a compact text digest
        │
        ▼
-  [engine]   — sends digests to your own `claude -p`, looks for recurring patterns
+  [engine]   — sends digests to your configured runner, looks for recurring patterns
        │
        ▼
   [inbox]    — strong candidates land as proposals; you review and approve
@@ -203,18 +203,27 @@ Exposes every installed loop that has a `tool.json` as a callable tool. When non
 
 ---
 
-## Privacy
+## Privacy & security
 
-Transcripts stay on your machine. Always.
+Transcripts stay on your machine. Always. loopEng never contacts an external service of its own — the only network egress is whatever your own `claude` / `codex` CLI does.
 
-Before any digest is sent to your `claude -p` process, loopEng redacts:
+**What leaves your machine, and where it goes.** During a scan, loopEng builds compact digests of your sessions (commands, messages, errors) and sends them to **your configured runner** (`claude -p` by default) so it can propose loops. With `scope: "project"` only the current project's sessions are included; with `scope: "all"` (default) every project on the machine is. Set the scope to match how much you want analysed.
 
-- API keys and tokens with known prefixes (`sk-`, `ghp_`, `gho_`, `github_pat_`, `xoxb-`, `xoxp-`), AWS access key ids (`AKIA…`), and `Bearer` tokens
-- `key=value` / `key: value` pairs where the key looks credential-ish (`password`, `secret`, `token`, `api_key`, …)
-- URL credentials (`//user:pass@host`)
-- High-entropy strings that look like secrets
+**Secret redaction (best-effort).** Before a digest is sent or written, loopEng redacts:
 
-The engine sends only compact, redacted digests to your own `claude -p`. loopEng does not contact any external service.
+- Private key blocks (`-----BEGIN … PRIVATE KEY-----`)
+- API keys/tokens with known prefixes (`sk-`, `ghp_`, `gho_`, `ghs_`, `github_pat_`, `xoxb-`, `xapp-`, …), AWS keys (`AKIA…`), Google keys (`AIza…`), JWTs (`eyJ…`), and `Bearer` tokens
+- `key=value` / `key: value` pairs with a credential-ish key (`password`, `secret`, `token`, `api_key`, …)
+- URL credentials (`//user:pass@host`) and high-entropy strings
+
+Redaction is pattern-based and **not guaranteed** — a low-entropy or all-lowercase secret (e.g. a bare hex token) can slip through. Treat digests as sensitive.
+
+**On-disk.** State under `~/.loopeng` (digests and generated loops) is written owner-only (`0600` files, `0700` directories). JSON state reads are capped before parsing to avoid loading unexpectedly huge config/registry/proposal files.
+
+**Running approved loops is code execution.** Approving a proposal can install an automation that runs on a schedule or on Claude Code events:
+
+- Tool specs (`loopeng-tools`) execute via `execFile` (no shell); a generated command naming a shell/interpreter (`bash`, `sh`, `python`, `node`, …) as `argv[0]` is **rejected**, and parameter values can't inject extra commands.
+- Loop bundles run your configured runner with the loop prompt — an **autonomous agent with that runner's permissions**. Review what you approve; only approve loops whose actions you understand.
 
 ---
 
@@ -226,13 +235,42 @@ Configuration lives at `~/.loopeng/config.json`:
 {
   "companion": "auto",
   "dailyTokenCap": 100000,
-  "pollIntervalMin": 15
+  "pollIntervalMin": 15,
+  "runnerCommand": "claude",
+  "runnerArgs": ["-p"],
+  "runnerTimeoutMs": 120000,
+  "claudeProjectsDir": "~/.claude/projects",
+  "codexSessionsDir": "~/.codex/sessions",
+  "scope": "all",
+  "recentWindowHours": 4,
+  "scanMaxAttempts": 1,
+  "scanMaxDigestChars": 60000,
+  "eventsMaxBytes": 524288,
+  "eventsKeepLines": 1000,
+  "mcpToolStepTimeoutMs": 120000,
+  "mcpToolMaxOutputBytes": 262144,
+  "dashboardBusyTickMs": 333,
+  "dashboardRefreshMs": 5000,
+  "watcherMarkerDebounceMs": 2000
 }
 ```
 
 - **companion** — `auto` (open a companion window when work is found), `manual`, or `off`
-- **dailyTokenCap** — the engine reserves an estimate before each scan and skips once the day's budget is spent
+- **dailyTokenCap** — the engine reserves a conservative estimate before each scan and skips once the day's budget is spent
 - **pollIntervalMin** — how often the daemon re-scans for new sessions
+- **runnerCommand** / **runnerArgs** / **runnerTimeoutMs** — runner binary, flags, and timeout used for engine scans and Claude Code loop installs. Add model or permission flags here, e.g. `["-p", "--model", "claude-sonnet"]`.
+- **claudeProjectsDir** / **codexSessionsDir** — transcript roots. `~` is expanded.
+- **scope**, **recentWindowHours**, **scanMaxAttempts**, **scanMaxDigestChars** — scan scope, active-session window, retry count, and max digest payload.
+- **eventsMaxBytes** / **eventsKeepLines** — event log rotation threshold and retained line count.
+- **mcpToolStepTimeoutMs** / **mcpToolMaxOutputBytes** — timeout and output cap for generated MCP tools.
+- **dashboardBusyTickMs** / **dashboardRefreshMs** / **watcherMarkerDebounceMs** — UI refresh and watcher debounce intervals.
+
+Environment overrides:
+
+- `LOOPENG_RUNNER_COMMAND`, `LOOPENG_RUNNER_ARGS`, `LOOPENG_RUNNER_TIMEOUT_MS`
+- `LOOPENG_JSON_READ_MAX_BYTES` (default `8388608`)
+- `LOOPENG_CLAUDE_PROJECTS_DIR`, `LOOPENG_CODEX_SESSIONS_DIR`
+- existing one-off scope overrides: `LOOPENG_SCOPE`, `LOOPENG_PROJECT`
 
 Everything loopEng writes lives under `~/.loopeng/`:
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionEvent, SessionRecord } from "../src/types.js";
-import { digestSession, digestSessions, redact } from "../src/digester.js";
+import { digestSession, digestSessions, parseDigestHeader, redact } from "../src/digester.js";
 
 describe("redact", () => {
   it("redacts every planted secret type while keeping surrounding prose", () => {
@@ -49,6 +49,23 @@ describe("redact", () => {
       expect(out).toContain(word);
     }
     expect(out).toContain("[REDACTED]");
+  });
+
+  it("redacts private key blocks, JWTs, and Google API keys", () => {
+    const pem =
+      "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\nQUFB\n-----END OPENSSH PRIVATE KEY-----";
+    const jwt =
+      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
+    const google = "AIzaSyA1234567890abcdefGHIJKLmnopQRSTuv";
+
+    const pemOut = redact(`key:\n${pem}\nend`);
+    expect(pemOut).not.toContain("b3BlbnNzaC1rZXktdjEAAAAA");
+    expect(pemOut).toContain("[REDACTED]");
+    expect(pemOut).toContain("end");
+
+    expect(redact(`token ${jwt} here`)).not.toContain(jwt);
+    expect(redact(`token ${jwt} here`)).toContain("here");
+    expect(redact(`gkey ${google} ok`)).not.toContain(google);
   });
 
   it("leaves ordinary prose, paths, URLs, timestamps and UUIDs untouched", () => {
@@ -117,6 +134,28 @@ describe("digestSession", () => {
     expect(out).not.toContain("\nline two");
   });
 
+  it("caps a very long session to the most recent events, keeping the header", () => {
+    const events: SessionEvent[] = [];
+    for (let i = 0; i < 1500; i++) {
+      events.push({ t: "2026-06-12T10:00:00.000Z", kind: "command", name: `cmd-${i}` });
+    }
+    const record: SessionRecord = {
+      tool: "claude-code",
+      sessionId: "long",
+      startedAt: "2026-06-12T10:00:00.000Z",
+      endedAt: "2026-06-12T11:00:00.000Z",
+      cwd: "/tmp/work",
+      events
+    };
+
+    const digest = digestSession(record);
+    const lines = digest.split("\n");
+    expect(lines.length).toBe(1001); // header + 1000 most-recent events
+    expect(lines[0]).toContain("=== session long"); // header preserved
+    expect(digest).toContain("cmd-1499"); // newest kept
+    expect(digest).not.toContain("cmd-0 "); // oldest dropped
+  });
+
   it("digests large sessions to <=10% of the raw JSON size", () => {
     const events: SessionEvent[] = [];
     for (let i = 0; i < 50; i++) {
@@ -139,6 +178,18 @@ describe("digestSession", () => {
     const digest = digestSession(record);
     const raw = JSON.stringify(record).length;
     expect(digest.length).toBeLessThanOrEqual(raw * 0.1);
+  });
+});
+
+describe("parseDigestHeader", () => {
+  it("keeps a cwd that contains spaces intact", () => {
+    const line =
+      "=== session s1 tool=claude-code cwd=/Users/me/My Project branch=main start=2026-06-12T10:00:00.000Z end=2026-06-12T10:05:00.000Z";
+    const h = parseDigestHeader(line);
+    expect(h.sessionId).toBe("s1");
+    expect(h.tool).toBe("claude-code");
+    expect(h.cwd).toBe("/Users/me/My Project");
+    expect(h.endedAtMs).toBe(new Date("2026-06-12T10:05:00.000Z").getTime());
   });
 });
 

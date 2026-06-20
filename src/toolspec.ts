@@ -45,6 +45,25 @@ const MAX_STEPS = 20;
 const MAX_ARGV = 64;
 const MAX_TOKEN_LEN = 4096;
 
+// Programs that re-introduce arbitrary execution (shells / interpreters that
+// run inline code from their arguments). The no-shell execFile model only
+// blocks injection through *parameters* — it does nothing against a malicious
+// *base command*. A generated spec naming one of these as argv[0] is rejected,
+// so an LLM (or a prompt-injected digest) can't synthesise `bash -c …`.
+const BLOCKED_COMMANDS = new Set([
+  "sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh", "ash",
+  "env", "eval", "exec", "command", "nohup", "time", "xargs", "watch", "nice",
+  "python", "python2", "python3", "node", "deno", "bun", "ruby", "perl",
+  "php", "lua", "groovy", "osascript", "powershell", "pwsh"
+]);
+
+// Map an argv[0] to a comparable program name: drop any directory and a Windows
+// executable suffix so `/bin/bash` and `bash.exe` both resolve to `bash`.
+function commandBasename(command: string): string {
+  const base = command.split(/[\\/]/).pop() ?? command;
+  return base.toLowerCase().replace(/\.(exe|cmd|bat|ps1)$/, "");
+}
+
 // ── Validation ───────────────────────────────────────────────────────────────
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -114,10 +133,18 @@ function validateStep(value: unknown, path: string, params: Map<string, ToolPara
       throw new ToolSpecError(`${path}.argv[${index}] exceeds ${MAX_TOKEN_LEN} chars`);
     }
     // The command itself (argv[0]) must be a static program name — never
-    // assembled from a parameter, so a caller can never choose what runs.
+    // assembled from a parameter, and never a shell/interpreter that would let
+    // arbitrary code back in, so a caller can never choose what runs.
     const refs = placeholdersIn(token);
-    if (index === 0 && refs.length > 0) {
-      throw new ToolSpecError(`${path}.argv[0] (the command) must not contain a \${placeholder}`);
+    if (index === 0) {
+      if (refs.length > 0) {
+        throw new ToolSpecError(`${path}.argv[0] (the command) must not contain a \${placeholder}`);
+      }
+      if (BLOCKED_COMMANDS.has(commandBasename(token))) {
+        throw new ToolSpecError(
+          `${path}.argv[0] command "${token}" is not allowed — shells and interpreters that run inline code are blocked`,
+        );
+      }
     }
     for (const ref of refs) {
       const param = params.get(ref);

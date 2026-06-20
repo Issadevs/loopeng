@@ -14,10 +14,18 @@ import type { SessionRecord } from "./types.js";
 export function redact(text: string): string {
   let s = text;
 
+  // 0. Private key blocks (PEM / OpenSSH), including across newlines — redact()
+  //    runs before newlines are collapsed, so the whole block is matched here.
+  s = s.replace(/-----BEGIN[^-]*PRIVATE KEY-----[\s\S]*?-----END[^-]*PRIVATE KEY-----/g, "[REDACTED]");
+
   // 1. Known token prefixes followed by 8+ non-space chars.
-  s = s.replace(/\b(?:sk-|ghp_|gho_|github_pat_|xoxb-|xoxp-)\S{8,}/g, "[REDACTED]");
+  s = s.replace(/\b(?:sk-|ghp_|gho_|ghs_|ghr_|github_pat_|xoxb-|xoxp-|xoxa-|xapp-)\S{8,}/g, "[REDACTED]");
   // AWS access key ids: AKIA then 12+ alphanumerics.
   s = s.replace(/\bAKIA[A-Za-z0-9]{12,}/g, "[REDACTED]");
+  // Google API keys: AIza then 35 url-safe chars.
+  s = s.replace(/\bAIza[0-9A-Za-z_-]{35}\b/g, "[REDACTED]");
+  // JSON Web Tokens: three base64url segments, header starting with eyJ.
+  s = s.replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[REDACTED]");
   // Bearer tokens: "Bearer " then 16+ non-space chars.
   s = s.replace(/\bBearer \S{16,}/g, "[REDACTED]");
 
@@ -56,7 +64,14 @@ function reduceField(value: string | undefined, max?: number): string {
 /**
  * Reduce a single session into a compact, deterministic text digest.
  * One header line plus one line per event, in original order.
+ *
+ * Only the most recent MAX_DIGEST_EVENTS events are kept so a pathologically
+ * long session can't produce an unbounded digest (which is rewritten on every
+ * watcher tick and replayed into scan prompts). The header — including the
+ * start/end times computed from the *full* session — is always preserved.
  */
+const MAX_DIGEST_EVENTS = 1000;
+
 export function digestSession(record: SessionRecord): string {
   const header =
     `=== session ${reduceField(record.sessionId)} tool=${reduceField(record.tool)} ` +
@@ -65,7 +80,11 @@ export function digestSession(record: SessionRecord): string {
 
   const lines: string[] = [header];
 
-  for (const e of record.events) {
+  const events =
+    record.events.length > MAX_DIGEST_EVENTS
+      ? record.events.slice(-MAX_DIGEST_EVENTS)
+      : record.events;
+  for (const e of events) {
     const t = reduceField(e.t);
     switch (e.kind) {
       case "user_msg":
@@ -95,8 +114,9 @@ export interface DigestHeader {
 
 /**
  * Parse the first (header) line of a digest back into its fields. Kept next to
- * digestSession so the read and write formats stay in sync. Values are read up
- * to the next space, matching the space-delimited `key=value` header layout.
+ * digestSession so the read and write formats stay in sync. Single-token fields
+ * (tool/end) read up to the next space; cwd reads greedily up to the next
+ * ` key=` field so a path containing spaces survives intact.
  */
 export function parseDigestHeader(firstLine: string): DigestHeader {
   const field = (key: string): string => {
@@ -105,13 +125,15 @@ export function parseDigestHeader(firstLine: string): DigestHeader {
   };
 
   const sessionId = firstLine.match(/^=== session (\S+)/)?.[1] ?? "";
+  // cwd may contain spaces; stop only at the next ` <key>=` token or line end.
+  const cwd = firstLine.match(/\bcwd=(.*?)(?=\s+\w+=|$)/)?.[1] ?? "";
   const end = field("end");
   const endedAt = end ? new Date(end).getTime() : Number.NaN;
 
   return {
     sessionId,
     tool: field("tool"),
-    cwd: field("cwd"),
+    cwd,
     endedAtMs: Number.isNaN(endedAt) ? undefined : endedAt
   };
 }

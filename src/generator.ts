@@ -271,14 +271,17 @@ function writeBundle(
   trigger: Trigger,
   now: string
 ): void {
-  mkdirSync(bundleDir, { recursive: true });
-  mkdirSync(join(bundleDir, "state"), { recursive: true });
+  // Owner-only: loop.md is the prompt an installed loop autonomously runs via
+  // `claude -p`. Keeping the bundle unreadable/unwritable by other local users
+  // stops them from hijacking that agent by tampering with the file.
+  mkdirSync(bundleDir, { recursive: true, mode: 0o700 });
+  mkdirSync(join(bundleDir, "state"), { recursive: true, mode: 0o700 });
 
-  writeFileSync(join(bundleDir, "loop.md"), loopMd, "utf8");
+  writeFileSync(join(bundleDir, "loop.md"), loopMd, { encoding: "utf8", mode: 0o600 });
   writeFileSync(
     join(bundleDir, "trigger.json"),
     `${JSON.stringify(trigger, null, 2)}\n`,
-    "utf8"
+    { encoding: "utf8", mode: 0o600 }
   );
 
   const manifest: BundleManifest = {
@@ -292,7 +295,7 @@ function writeBundle(
   writeFileSync(
     join(bundleDir, "manifest.json"),
     `${JSON.stringify(manifest, null, 2)}\n`,
-    "utf8"
+    { encoding: "utf8", mode: 0o600 }
   );
 }
 

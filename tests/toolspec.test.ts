@@ -73,6 +73,17 @@ describe("validateToolSpec", () => {
     expect(() => validateToolSpec(spec, LOOP_ID)).toThrow(/argv\[0\].*placeholder/);
   });
 
+  it("rejects shells/interpreters as the command (incl. paths and .exe)", () => {
+    for (const cmd of ["bash", "/bin/sh", "ZSH", "python3", "node", "env", "Bash.exe"]) {
+      const spec = rawSpec({ parameters: [], steps: [{ argv: [cmd, "-c", "echo hi"] }] });
+      expect(() => validateToolSpec(spec, LOOP_ID)).toThrow(/not allowed/);
+    }
+    // Ordinary tools are still fine.
+    expect(() =>
+      validateToolSpec(rawSpec({ parameters: [], steps: [{ argv: ["git", "status"] }] }), LOOP_ID)
+    ).not.toThrow();
+  });
+
   it("rejects a placeholder referencing an unknown parameter", () => {
     const spec = rawSpec({ steps: [{ argv: ["git", "push", "${nope}"] }] });
     expect(() => validateToolSpec(spec, LOOP_ID)).toThrow(/unknown parameter "nope"/);
