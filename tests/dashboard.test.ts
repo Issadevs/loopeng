@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Proposal } from "../src/types.js";
 import type { DashboardData, DashboardState } from "../src/dashboard/state.js";
-import { deriveMood, reduce } from "../src/dashboard/state.js";
+import { deriveMood, messageTone, reduce } from "../src/dashboard/state.js";
 import { renderDashboard } from "../src/dashboard/render.js";
 
 function proposal(id: string, summary = "Run the same verification command before handoff"): Proposal {
@@ -98,6 +98,20 @@ describe("dashboard renderer geometry", () => {
       expect(rendered).toContain("[inbox]");
       expect(rendered).not.toContain("loopEng needs a bigger window");
     }
+  });
+});
+
+describe("messageTone", () => {
+  it("classifies messages so mood and colour stay in sync", () => {
+    expect(messageTone('🌱 "x" installed — done')).toBe("good");
+    expect(messageTone("daemon resumed")).toBe("good");
+    expect(messageTone("approve failed: not found")).toBe("bad");
+    expect(messageTone("error: boom")).toBe("bad");
+    expect(messageTone("✨ 2 loop idea(s) waiting")).toBe("warn");
+    expect(messageTone('dismiss "x"? [y]es [n]o')).toBe("warn");
+    expect(messageTone("all quiet — your loops have it covered")).toBe("muted");
+    expect(messageTone('uninstalled "x"')).toBe("info");
+    expect(messageTone("daily token budget reached (5/100)")).toBe("info");
   });
 });
 
@@ -213,6 +227,13 @@ describe("dashboard reducer", () => {
 });
 
 describe("dashboard render content", () => {
+  it("shows 'live' when the in-process watcher runs without a daemon", () => {
+    const data: DashboardData = { ...emptyData, daemon: "not-installed", sessions: 2 };
+    const rendered = renderDashboard(state({ data, live: true }), 80, 24);
+    expect(rendered).toContain("live");
+    expect(rendered).not.toContain("daemon ✗");
+  });
+
   it("includes selected details, focus brackets, and empty hints", () => {
     const rendered = renderDashboard(state({ data: fullData }), 80, 24);
     expect(rendered).toContain("impact: saves ~30 min/week");

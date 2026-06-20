@@ -1,5 +1,7 @@
 import { spawn as childSpawn } from "node:child_process";
 import {
+  chmodSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -9,7 +11,7 @@ import {
   writeFileSync,
   type FSWatcher
 } from "node:fs";
-import { homedir, platform } from "node:os";
+import { platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   listClaudeCodeTranscripts,
@@ -18,7 +20,15 @@ import {
 import { listCodexSessions, parseCodexSession } from "./adapters/codex.js";
 import { digestSession } from "./digester.js";
 import { appendEvent } from "./events.js";
-import { loadConfig, loopengHome, readJson, writeJsonAtomic } from "./state.js";
+import {
+  cwdInScope,
+  loadConfig,
+  loopengHome,
+  readJson,
+  transcriptDirs,
+  writeJsonAtomic
+} from "./state.js";
+import { CLI_BIN } from "./constants.js";
 
 export interface WatchContext {
   claudeProjectsDir: string;
@@ -61,6 +71,7 @@ export async function tick(ctx: WatchContext, opts: WatchOptions = {}): Promise<
   const statePath = join(loopengHome(), "log", "watch.json");
   const state = readJson<WatchState>(statePath) ?? { files: {} };
   const digested: string[] = [];
+  const created: string[] = []; // first-time digests only, for a quiet activity log
 
   for (const file of listTranscriptFiles(ctx)) {
     const mtimeMs = fileMtimeMs(file.path);
@@ -75,11 +86,21 @@ export async function tick(ctx: WatchContext, opts: WatchOptions = {}): Promise<
           ? parseClaudeCodeTranscript(content)
           : parseCodexSession(content);
 
-      if (record !== undefined) {
+      // Only digest sessions inside the active scope (whole machine, or just the
+      // current project). Out-of-scope transcripts still fall through to be
+      // marked seen below, so we don't re-parse them on every tick.
+      if (record !== undefined && cwdInScope(record.cwd)) {
         const digestPath = join(loopengHome(), "digests", `${record.sessionId}.txt`);
-        mkdirSync(dirname(digestPath), { recursive: true });
-        writeFileSync(digestPath, digestSession(record), "utf8");
+        const isNew = !existsSync(digestPath);
+        mkdirSync(dirname(digestPath), { recursive: true, mode: 0o700 });
+        // Digests hold (redacted) session content — keep them owner-only, and
+        // re-assert the mode on rewrite so pre-existing 0644 files are fixed too.
+        writeFileSync(digestPath, digestSession(record), { encoding: "utf8", mode: 0o600 });
+        chmodSync(digestPath, 0o600);
         digested.push(record.sessionId);
+        if (isNew) {
+          created.push(record.sessionId);
+        }
       }
     }
 
@@ -88,10 +109,13 @@ export async function tick(ctx: WatchContext, opts: WatchOptions = {}): Promise<
 
   writeJsonAtomic(statePath, state);
 
-  if (digested.length > 0) {
+  // Log only the first time a session is seen. An ongoing session is re-digested
+  // every tick as it grows; logging each of those would flood the activity feed
+  // with identical lines.
+  if (created.length > 0) {
     appendEvent(
       "digest",
-      `digested ${digested.length} session(s): ${digested.join(", ")}`,
+      `noticed ${created.length} new session(s): ${created.join(", ")}`,
       ctx.now()
     );
   }
@@ -129,7 +153,7 @@ export function startWatcher(ctx: WatchContext, opts: WatchOptions = {}): { stop
     debounce = setTimeout(() => {
       debounce = undefined;
       void tick(ctx, opts);
-    }, 2000);
+    }, loadConfig().watcherMarkerDebounceMs);
     debounce.unref();
   });
 
@@ -145,9 +169,10 @@ export function startWatcher(ctx: WatchContext, opts: WatchOptions = {}): { stop
 }
 
 export function defaultContext(): WatchContext {
+  const dirs = transcriptDirs();
   return {
-    claudeProjectsDir: join(homedir(), ".claude", "projects"),
-    codexSessionsDir: join(homedir(), ".codex", "sessions"),
+    claudeProjectsDir: dirs.claudeProjectsDir,
+    codexSessionsDir: dirs.codexSessionsDir,
     spawn(argv: string[]): number | undefined {
       const command = argv.join(" ");
       const child =
@@ -157,7 +182,7 @@ export function defaultContext(): WatchContext {
               ["-e", `tell application "Terminal" to do script "${command}"`],
               { detached: true, stdio: "ignore" }
             )
-          : childSpawn(argv[0] ?? "loopeng", argv.slice(1), {
+          : childSpawn(argv[0] ?? CLI_BIN, argv.slice(1), {
               detached: true,
               stdio: "ignore"
             });
@@ -238,7 +263,7 @@ function maybeSpawnCompanion(ctx: WatchContext): boolean {
     return false;
   }
 
-  const pid = ctx.spawn(["loopeng", "companion"]);
+  const pid = ctx.spawn([CLI_BIN, "companion"]);
   if (pid !== undefined) {
     writeJsonAtomic(lockPath, { pid });
   }

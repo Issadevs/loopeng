@@ -1,14 +1,17 @@
 import { execFile } from "node:child_process";
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   readdirSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir as osHomedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Command } from "commander";
 
 import type { Proposal } from "./types.js";
@@ -23,6 +26,7 @@ import {
   setProposalStatus,
   writeJsonAtomic,
 } from "./state.js";
+import { CLI_BIN, DAEMON_LABEL, DAEMON_PLIST_FILENAME, VERSION } from "./constants.js";
 import { parseDigestHeader } from "./digester.js";
 import { defaultRunner } from "./engine.js";
 import { appendEvent } from "./events.js";
@@ -72,9 +76,6 @@ export function realDeps(): CliDeps {
     },
   };
 }
-
-// ── Constants ────────────────────────────────────────────────────────────────
-const DAEMON_PLIST_FILENAME = "com.loopeng.daemon.plist";
 
 export function daemonPlistPath(deps: CliDeps): string {
   return join(launchAgentsDir(deps), DAEMON_PLIST_FILENAME);
@@ -134,19 +135,32 @@ function installTriggerHook(deps: CliDeps): boolean {
   return true;
 }
 
-function daemonPlistXml(): string {
+function escapeXml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// launchd starts jobs with a bare PATH and no notion of where `loopeng` lives,
+// so a relative `loopeng daemon` often can't be found (the daemon then dies
+// silently). Pin the absolute node + script path, and carry the PATH captured
+// at setup time so the daemon's own child processes (`claude`, `codex`,
+// `loopeng companion`) resolve too.
+function daemonPlistXml(programArgs: string[], pathEnv: string): string {
+  const args = programArgs.map((a) => `    <string>${escapeXml(a)}</string>`).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.loopeng.daemon</string>
+  <string>${DAEMON_LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/sh</string>
-    <string>-c</string>
-    <string>loopeng daemon</string>
+${args}
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${escapeXml(pathEnv)}</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -165,11 +179,10 @@ export async function setupAction(deps: CliDeps, opts: SetupOpts): Promise<void>
 
   ensureDirs();
 
-  writeJsonAtomic(join(loopengHome(), "config.json"), {
-    companion,
-    dailyTokenCap: 100000,
-    pollIntervalMin: 15
-  });
+  // Merge over the existing config (and defaults) so re-running setup only
+  // changes the companion mode and never silently resets scope, recency window,
+  // or scan limits the user has tuned.
+  writeJsonAtomic(join(loopengHome(), "config.json"), { ...loadConfig(), companion });
   deps.out(`✓ wrote config (companion: ${companion})`);
 
   const hookAdded = installTriggerHook(deps);
@@ -186,7 +199,9 @@ export async function setupAction(deps: CliDeps, opts: SetupOpts): Promise<void>
 
   const plistPath = daemonPlistPath(deps);
   mkdirSync(launchAgentsDir(deps), { recursive: true });
-  writeFileSync(plistPath, daemonPlistXml(), "utf8");
+  const programArgs = [process.execPath, resolve(process.argv[1] ?? CLI_BIN), "daemon"];
+  const pathEnv = process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin";
+  writeFileSync(plistPath, daemonPlistXml(programArgs, pathEnv), "utf8");
   await deps.exec("launchctl", ["load", plistPath]);
   deps.out(`✓ installed + loaded daemon (${plistPath})`);
 }
@@ -263,14 +278,38 @@ export function readCompanionState(deps: CliDeps): {
 // `end=` time is preferred over the digest file's mtime — a first-run back-fill
 // writes every digest "now", which would otherwise make the whole history look
 // like it happened today.
+// Only the first line (the header) is needed, so read a bounded prefix instead
+// of the whole digest. The dashboard refreshes every few seconds and a machine
+// can accumulate hundreds of digests totalling many MB — reading each in full
+// each time does not scale.
+const DIGEST_HEADER_READ_BYTES = 8192;
+
+function readHeaderLine(path: string): string | undefined {
+  let fd: number;
+  try {
+    fd = openSync(path, "r");
+  } catch {
+    return undefined; // File vanished between readdir and open — ignore.
+  }
+  try {
+    const buffer = Buffer.allocUnsafe(DIGEST_HEADER_READ_BYTES);
+    const bytesRead = readSync(fd, buffer, 0, DIGEST_HEADER_READ_BYTES, 0);
+    const text = buffer.toString("utf8", 0, bytesRead);
+    const newline = text.indexOf("\n");
+    return newline === -1 ? text : text.slice(0, newline);
+  } catch {
+    return undefined;
+  } finally {
+    closeSync(fd);
+  }
+}
+
 function readDigestSummary(
   path: string
 ): { activeAt: number; cwd: string; tool: string } | undefined {
-  let firstLine: string;
-  try {
-    firstLine = readFileSync(path, "utf8").split("\n", 1)[0] ?? "";
-  } catch {
-    return undefined; // File vanished between readdir and read — ignore.
+  const firstLine = readHeaderLine(path);
+  if (firstLine === undefined) {
+    return undefined;
   }
 
   const header = parseDigestHeader(firstLine);
@@ -381,7 +420,7 @@ export async function registerToolsAction(deps: CliDeps): Promise<void> {
 // ── Program assembly ─────────────────────────────────────────────────────────
 export function buildProgram(deps: CliDeps): Command {
   const program = new Command();
-  program.name("loopeng").description("loopEng — your coding-agent loop companion").version("0.1.0");
+  program.name(CLI_BIN).description("loopEng — your coding-agent loop companion").version(VERSION);
 
   program.action(() => runDashboard(deps, "inbox"));
 

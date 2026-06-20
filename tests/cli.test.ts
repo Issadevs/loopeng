@@ -138,6 +138,23 @@ describe("setupAction", () => {
     expect(execCalls).toHaveLength(0);
   });
 
+  it("preserves existing tuned config fields when re-run", async () => {
+    writeJsonAtomic(join(loopengHome(), "config.json"), {
+      companion: "auto",
+      scope: "project",
+      recentWindowHours: 1,
+      scanMaxAttempts: 3
+    });
+
+    await setupAction(makeDeps(), { companion: "manual", daemon: false });
+
+    const config = readJson<Record<string, unknown>>(join(loopengHome(), "config.json"));
+    expect(config?.companion).toBe("manual"); // updated
+    expect(config?.scope).toBe("project"); // preserved
+    expect(config?.recentWindowHours).toBe(1); // preserved
+    expect(config?.scanMaxAttempts).toBe(3); // preserved
+  });
+
   it("rejects an invalid --companion value without persisting it", async () => {
     const deps = makeDeps();
     await setupAction(deps, { companion: "bogus" });
@@ -315,6 +332,97 @@ describe("scanAction", () => {
     );
     expect(listProposals().map((p) => p.candidate.id)).toEqual(["cand-new"]);
     expect(lines).toContain("nothing new to scan — all sessions already analyzed");
+  });
+
+  it("truncates an oversized digest so it can't wedge the scan queue", async () => {
+    writeJsonAtomic(join(loopengHome(), "config.json"), { scanMaxDigestChars: 100 });
+
+    const dir = join(loopengHome(), "digests");
+    mkdirSync(dir, { recursive: true });
+    const header = "=== session big tool=claude-code cwd=/w end=2026-06-12T11:00:00.000Z";
+    writeFileSync(join(dir, "big.txt"), `${header}\n${"X".repeat(5000)}`, "utf8");
+
+    let received = "";
+    const runner = async (prompt: string): Promise<string> => {
+      received = prompt;
+      return JSON.stringify({ candidates: [], watchlist: [], memoryUpdates: [] });
+    };
+
+    const result = await scanAction(makeDeps({ runner }));
+
+    expect(result.ok).toBe(true);
+    // The digest was cut to the cap, not sent whole (no permanent over-budget).
+    expect(received).not.toContain("X".repeat(200));
+    // And the session was marked analyzed, so the queue advances next scan.
+    expect(readJson<string[]>(join(loopengHome(), "registry", "analyzed.json"))).toContain("big");
+  });
+
+  it("caps the pattern memory so scan prompts stay bounded", async () => {
+    const memPath = join(loopengHome(), "log", "pattern-memory.txt");
+    mkdirSync(join(loopengHome(), "log"), { recursive: true });
+    const old = Array.from({ length: 300 }, (_, i) => `old-${i}`).join("\n");
+    writeFileSync(memPath, `${old}\n`, "utf8");
+
+    const dir = join(loopengHome(), "digests");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "s.txt"),
+      "=== session s tool=claude-code cwd=/w end=2026-06-12T11:00:00.000Z\nU hi",
+      "utf8"
+    );
+
+    await scanAction(
+      makeDeps({
+        runner: async () =>
+          JSON.stringify({ candidates: [], watchlist: [], memoryUpdates: ["new-line"] })
+      })
+    );
+
+    const kept = readFileSync(memPath, "utf8").split("\n").filter((l) => l.length > 0);
+    expect(kept.length).toBeLessThanOrEqual(200);
+    expect(kept).toContain("new-line"); // newest kept
+    expect(kept).toContain("old-299"); // recent old kept
+    expect(kept).not.toContain("old-0"); // oldest dropped
+  });
+
+  it("reports an accurate message when a scan exceeds the remaining budget", async () => {
+    writeJsonAtomic(join(loopengHome(), "config.json"), { dailyTokenCap: 100 });
+    const dir = join(loopengHome(), "digests");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "s.txt"),
+      "=== session s tool=claude-code cwd=/w end=2026-06-12T11:00:00.000Z\nU hi",
+      "utf8"
+    );
+
+    lines = [];
+    await scanAction(makeDeps({ runner: async () => "{}" }));
+
+    // Most of the budget is unused (0/100) — the message must say the scan is
+    // too big, not that the budget is "reached".
+    expect(lines.some((l) => l.includes("exceeds today's remaining token budget"))).toBe(true);
+    expect(lines.some((l) => l.includes("0/100"))).toBe(true);
+  });
+
+  it("prunes ids of deleted digests from analyzed.json", async () => {
+    const dir = join(loopengHome(), "digests");
+    mkdirSync(dir, { recursive: true });
+    writeJsonAtomic(join(loopengHome(), "registry", "analyzed.json"), ["ghost"]); // no digest file
+    writeFileSync(
+      join(dir, "real.txt"),
+      "=== session real tool=claude-code cwd=/w end=2026-06-12T11:00:00.000Z\nU hi",
+      "utf8"
+    );
+
+    await scanAction(
+      makeDeps({
+        runner: async () => JSON.stringify({ candidates: [], watchlist: [], memoryUpdates: [] })
+      })
+    );
+
+    const analyzed = readJson<string[]>(join(loopengHome(), "registry", "analyzed.json"));
+    expect(analyzed).toContain("real"); // freshly analyzed
+    expect(analyzed).not.toContain("ghost"); // pruned — its digest is gone
   });
 });
 

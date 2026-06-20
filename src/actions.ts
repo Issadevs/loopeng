@@ -121,15 +121,20 @@ function readDigests(): { digests: string; knownSessionIds: string[]; pending: s
     if (analyzed.has(id)) {
       continue;
     }
-    const text = readFileSync(join(dir, name), "utf8");
+    const raw = readFileSync(join(dir, name), "utf8");
     // Respect the active scope: when watching a single project, don't analyze
     // (or pay for) sessions from other projects.
-    const header = parseDigestHeader(text.split("\n", 1)[0] ?? "");
+    const header = parseDigestHeader(raw.split("\n", 1)[0] ?? "");
     if (!cwdInScope(header.cwd)) {
       continue;
     }
-    // Always include at least one digest so a single oversized session still
-    // makes progress rather than stalling the queue forever.
+    // Truncate a single oversized digest to the per-scan cap. Otherwise a
+    // digest larger than the daily token budget would be skipped by the engine
+    // on every scan, never marked analyzed, and would wedge the whole queue
+    // (the header — and thus the session id — always survives the cut).
+    const text = raw.length > maxChars ? raw.slice(0, maxChars) : raw;
+    // Always include at least one digest so a session still makes progress
+    // rather than stalling the queue forever.
     if (pending.length > 0 && size + text.length > maxChars) {
       break;
     }
@@ -140,6 +145,9 @@ function readDigests(): { digests: string; knownSessionIds: string[]; pending: s
 
   return { digests: chunks.join("\n"), knownSessionIds, pending };
 }
+
+// Cap the replayed pattern memory so scan prompts stay bounded over time.
+const PATTERN_MEMORY_MAX_LINES = 200;
 
 function patternMemoryPath(): string {
   return join(loopengHome(), "log", "pattern-memory.txt");
@@ -188,14 +196,28 @@ export async function scanAction(deps: CliDeps): Promise<ActionResult> {
   }
 
   if (output.skipped) {
-    appendEvent("scan", "scan skipped — daily token budget reached", deps.now());
-    deps.out("token budget reached — skipped");
+    // Distinguish "no budget left at all today" from "this particular scan is
+    // too big for what's left" — the old single message read as the former even
+    // when most of the budget was unused.
+    const today = deps.now().slice(0, 10);
+    const used = (readJson<Record<string, number>>(join(loopengHome(), "log", "spend.json")) ?? {})[today] ?? 0;
+    const cap = loadConfig().dailyTokenCap;
+    const msg =
+      used >= cap
+        ? `daily token budget reached (${used}/${cap})`
+        : `this scan exceeds today's remaining token budget (${used}/${cap} used) — lower scanMaxDigestChars or wait for tomorrow`;
+    appendEvent("scan", `scan skipped — ${msg}`, deps.now());
+    deps.out(msg);
     return { ok: true };
   }
 
   // The engine ran on these sessions, so don't send them again next scan.
+  // Prune ids whose digest no longer exists (deleted/rotated) so the ledger
+  // tracks the live digest set instead of growing forever.
+  const onDisk = new Set(knownSessionIds);
   const analyzed = readJson<string[]>(analyzedPath()) ?? [];
-  writeJsonAtomic(analyzedPath(), [...new Set([...analyzed, ...pending])]);
+  const nextAnalyzed = [...new Set([...analyzed, ...pending])].filter((id) => onDisk.has(id));
+  writeJsonAtomic(analyzedPath(), nextAnalyzed);
 
   let saved = 0;
   for (const candidate of output.candidates) {
@@ -213,9 +235,15 @@ export async function scanAction(deps: CliDeps): Promise<ActionResult> {
 
   if (output.memoryUpdates.length > 0) {
     const existing = existsSync(memPath) ? readFileSync(memPath, "utf8") : "";
-    const appended = existing + output.memoryUpdates.map((line) => `${line}\n`).join("");
+    const merged = (existing + output.memoryUpdates.map((line) => `${line}\n`).join(""))
+      .split("\n")
+      .filter((line) => line.trim().length > 0);
+    // Pattern memory is replayed into every scan prompt, so keep only the most
+    // recent lines — otherwise it grows without bound and each scan gets bigger
+    // (and pricier) until it hits the token budget.
+    const kept = merged.slice(-PATTERN_MEMORY_MAX_LINES);
     mkdirSync(join(loopengHome(), "log"), { recursive: true });
-    writeFileSync(memPath, appended, "utf8");
+    writeFileSync(memPath, kept.length > 0 ? `${kept.join("\n")}\n` : "", { encoding: "utf8", mode: 0o600 });
   }
 
   deps.out(saved > 0 ? VOICE.proposalNudge(saved) : VOICE.noProposals());

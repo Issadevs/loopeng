@@ -30,6 +30,7 @@ export interface DashboardState {
   confirm?: { action: "approve" | "dismiss" | "uninstall"; targetId: string };
   busy?: string;
   quit?: boolean;
+  live?: boolean; // the in-process watcher is running (dashboard is watching live)
 }
 
 export type DashboardAction =
@@ -47,27 +48,36 @@ export type Effect =
   | { type: "scan" }
   | { type: "toggle-pause" };
 
+// The emotional tone of a status message. Single source of truth so the
+// mascot's mood (here) and the message colour (render.ts) never disagree, and a
+// reworded message only needs updating in one place instead of two regexes that
+// silently drift apart.
+export type MessageTone = "good" | "bad" | "warn" | "muted" | "info";
+
+export function messageTone(text: string): MessageTone {
+  // bad: an action didn't go through.
+  if (/failed|error:|not found/.test(text)) return "bad";
+  // good: a happy outcome — install banner, loop installed, daemon resumed,
+  // scan complete. Word boundaries keep "uninstalled" out of "installed".
+  if (text.startsWith("🌱") || /\b(installed|resumed|complete)\b/.test(text)) return "good";
+  // warn: needs attention — waiting ideas, or a yes/no prompt.
+  if (text.includes("loop idea") || text.includes("?")) return "warn";
+  // muted: nothing going on.
+  if (text.includes("all quiet")) return "muted";
+  return "info";
+}
+
 export function deriveMood(s: DashboardState): Mood {
-  if (s.flash && isBadNews(s.flash)) return "grumpy"; // bad news → cutely cross
-  if (s.flash && isGoodNews(s.flash)) return "celebrate"; // good news → big smile
+  if (s.flash) {
+    const tone = messageTone(s.flash);
+    if (tone === "bad") return "grumpy"; // bad news → cutely cross
+    if (tone === "good") return "celebrate"; // good news → big smile
+  }
   if (s.busy) return "working";
   if (s.confirm) return "attentive";
   if (s.data.proposals.length > 0) return "perky";
   if (s.data.sessions === 0) return "sleepy";
   return "idle";
-}
-
-// A flash counts as bad news when an action didn't go through. The mascot
-// reacts to these by frowning.
-function isBadNews(flash: string): boolean {
-  return /failed|error:|not found/.test(flash);
-}
-
-// A flash counts as good news on a happy outcome: the 🌱 install banner, a loop
-// installed, the daemon resumed, or a scan that completed. Word boundaries keep
-// "uninstalled" from sneaking in as a false positive.
-function isGoodNews(flash: string): boolean {
-  return flash.startsWith("🌱") || /\b(installed|resumed|complete)\b/.test(flash);
 }
 
 export function reduce(

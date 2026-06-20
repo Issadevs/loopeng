@@ -19,6 +19,7 @@ import {
 import { getProposal, loadConfig, loopengHome, readJson, watchScope } from "../state.js";
 import { readEvents } from "../events.js";
 import { defaultContext, startWatcher } from "../watcher.js";
+import { DAEMON_LABEL } from "../constants.js";
 import { readBundleManifest, readTrigger } from "../installers/shared.js";
 import {
   reduce,
@@ -40,7 +41,7 @@ export async function assembleData(deps: CliDeps): Promise<DashboardData> {
   if (!existsSync(plist)) {
     daemon = "not-installed";
   } else {
-    const { code } = await deps.exec("launchctl", ["list", "com.loopeng.daemon"]);
+    const { code } = await deps.exec("launchctl", ["list", DAEMON_LABEL]);
     daemon = code === 0 ? "running" : "paused";
   }
 
@@ -173,7 +174,7 @@ export function runDashboard(deps: CliDeps, startFocus?: Focus): Promise<void> {
         const next = reduce(state, { kind: "tick" });
         state = next.state;
         render();
-      }, 333);
+      }, loadConfig().dashboardBusyTickMs);
       tick.unref();
 
       // Run the session watcher in-process while the dashboard is open, so
@@ -181,6 +182,7 @@ export function runDashboard(deps: CliDeps, startFocus?: Focus): Promise<void> {
       // separate launchd daemon (this is what makes `npm run dev` "just work").
       // The dashboard is the foreground UI, so don't spawn the companion window.
       const watcher = startWatcher(defaultContext(), { spawnCompanion: false });
+      state = { ...state, live: true }; // the dashboard is now watching in-process
 
       // Pull fresh data from disk on a short cadence so sessions the watcher
       // just digested (and any new proposals) show up on their own. Only
@@ -204,7 +206,7 @@ export function runDashboard(deps: CliDeps, startFocus?: Focus): Promise<void> {
           .finally(() => {
             refreshing = false;
           });
-      }, 5000);
+      }, loadConfig().dashboardRefreshMs);
       refresh.unref();
 
       const onResize = (): void => render();

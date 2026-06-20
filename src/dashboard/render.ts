@@ -1,5 +1,5 @@
-import type { DashboardState, Focus, Mood } from "./state.js";
-import { deriveMood } from "./state.js";
+import type { DashboardState, Focus, MessageTone, Mood } from "./state.js";
+import { deriveMood, messageTone } from "./state.js";
 
 export const FULL_LAYOUT_MIN_COLS = 60;
 export const FULL_LAYOUT_MIN_ROWS = 16;
@@ -215,18 +215,32 @@ function scopeLabel(s: DashboardState): string {
   return s.data.scope === "project" ? "this project" : "all projects";
 }
 
+// What's actually watching. The background launchd daemon and the in-process
+// watcher (live while the dashboard is open) are different things — show "live"
+// when the dashboard is watching even though no daemon is installed, so "✗"
+// never reads as "nothing is listening".
+function watchStatus(s: DashboardState): string {
+  if (s.data.daemon === "running") return "daemon ✓";
+  if (s.data.daemon === "paused") return "daemon paused";
+  if (s.live) return "live ●";
+  return "daemon ✗";
+}
+
+function compactWatchStatus(s: DashboardState): string {
+  if (s.data.daemon === "running") return "run";
+  if (s.data.daemon === "paused") return "paused";
+  if (s.live) return "live";
+  return "off";
+}
+
 function statusText(s: DashboardState): string {
-  const daemon =
-    s.data.daemon === "running" ? "✓" : s.data.daemon === "paused" ? "paused" : "✗";
   const count = `${s.data.sessions} session${s.data.sessions === 1 ? "" : "s"}`;
-  return `watching ${count} in ${scopeLabel(s)} · daemon ${daemon} · spend ${s.data.spendToday}/${s.data.spendCap}`;
+  return `watching ${count} in ${scopeLabel(s)} · ${watchStatus(s)} · spend ${s.data.spendToday}/${s.data.spendCap}`;
 }
 
 function compactStatusText(s: DashboardState): string {
-  const daemon =
-    s.data.daemon === "running" ? "run" : s.data.daemon === "paused" ? "paused" : "off";
   const scope = s.data.scope === "project" ? "proj" : "all";
-  return `${s.data.sessions} sess (${scope}) | ${daemon} | ${s.data.spendToday}/${s.data.spendCap}`;
+  return `${s.data.sessions} sess (${scope}) | ${compactWatchStatus(s)} | ${s.data.spendToday}/${s.data.spendCap}`;
 }
 
 function headerMessage(s: DashboardState): string {
@@ -472,19 +486,25 @@ function colorizeStatus(content: string): string {
     .replace(/daemon ✓/g, style(ANSI.good, "daemon ✓"))
     .replace(/daemon paused/g, style(ANSI.warn, "daemon paused"))
     .replace(/daemon ✗/g, style(ANSI.bad, "daemon ✗"))
+    .replace(/live(?: ●)?/g, (match) => style(ANSI.good, match))
     .replace(/\brun\b/g, style(ANSI.good, "run"))
     .replace(/\bpaused\b/g, style(ANSI.warn, "paused"))
     .replace(/\boff\b/g, style(ANSI.bad, "off"))
     .replace(/spend \d+\/\d+/g, (match) => style(ANSI.soft, match));
 }
 
+// Colour the header message from its shared tone, so this never disagrees with
+// the mascot's mood (deriveMood uses the same messageTone classifier).
+const TONE_ANSI: Record<MessageTone, string> = {
+  good: ANSI.good,
+  bad: ANSI.bad,
+  warn: ANSI.warn,
+  muted: ANSI.soft,
+  info: ANSI.info
+};
+
 function colorizeMessage(content: string): string {
-  if (content.includes("loop idea")) return style(ANSI.warn, content);
-  if (content.includes("all quiet")) return style(ANSI.soft, content);
-  if (content.includes("?")) return style(ANSI.warn, content);
-  if (content.includes("error:") || content.includes("failed")) return style(ANSI.bad, content);
-  if (/\b(installed|resumed|complete)\b/.test(content)) return style(ANSI.good, content);
-  return style(ANSI.info, content);
+  return style(TONE_ANSI[messageTone(content)], content);
 }
 
 function colorizeBody(content: string): string {
