@@ -1,5 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { LOOP_LABEL_PREFIX } from "../constants.js";
+import { runnerConfig } from "../state.js";
 import type { BundleManifest } from "../types.js";
 import {
   cronToLaunchdInterval,
@@ -14,6 +16,8 @@ import {
   writeClaudeSettings,
   type InstallContext
 } from "./shared.js";
+
+const PROMPT_PLACEHOLDER = "{prompt}";
 
 /**
  * Install an approved loop bundle into the Claude Code surface.
@@ -36,14 +40,14 @@ export async function installClaudeCodeLoop(
     if (typeof trigger.schedule !== "string") {
       throw new Error("schedule trigger missing 'schedule' field");
     }
-    const label = `com.loopeng.${loopId}`;
+    const label = `${LOOP_LABEL_PREFIX}${loopId}`;
     const plistPath = join(ctx.launchAgentsDir, `${label}.plist`);
     const resolvedPlist = resolve(plistPath);
     const resolvedDir = resolve(ctx.launchAgentsDir) + sep;
     if (!resolvedPlist.startsWith(resolvedDir)) {
       throw new Error(`plist path escapes launchAgentsDir: ${plistPath}`);
     }
-    const command = `claude -p "$(cat ${shellQuote(loopPath)})"`;
+    const command = runnerShellCommand(loopPath);
     const intervals = cronToLaunchdInterval(trigger.schedule);
     const plist = plistFor(label, ["/bin/sh", "-c", command], intervals);
 
@@ -77,7 +81,7 @@ export async function installClaudeCodeLoop(
       : [];
     hooks[trigger.hookEvent] = eventArray;
 
-    const innerScript = `claude -p "$(cat ${shellQuote(loopPath)})"`;
+    const innerScript = runnerShellCommand(loopPath);
     const command = `sh -c ${shellQuote(innerScript)} # loopeng:${loopId}`;
     eventArray.push({
       matcher: "*",
@@ -90,7 +94,34 @@ export async function installClaudeCodeLoop(
     return manifest;
   }
 
-  manifest.uninstallNotes.push("manual loop — run via: claude -p loop.md");
+  manifest.uninstallNotes.push(`manual loop — run via: ${manualRunHint()} loop.md`);
   writeBundleManifest(bundleDir, manifest);
   return manifest;
+}
+
+function runnerShellCommand(loopPath: string): string {
+  const runner = runnerConfig();
+  const promptArg = `"$(cat ${shellQuote(loopPath)})"`;
+  let promptInserted = false;
+  const args = runner.args.map((arg) => {
+    if (arg === PROMPT_PLACEHOLDER) {
+      promptInserted = true;
+      return promptArg;
+    }
+    return shellToken(arg);
+  });
+  if (!promptInserted) {
+    args.push(promptArg);
+  }
+  return [shellToken(runner.command), ...args].join(" ");
+}
+
+function manualRunHint(): string {
+  const runner = runnerConfig();
+  const args = runner.args.filter((arg) => arg !== PROMPT_PLACEHOLDER).map(shellToken);
+  return [shellToken(runner.command), ...args].join(" ");
+}
+
+function shellToken(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : shellQuote(value);
 }

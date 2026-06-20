@@ -5,7 +5,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z, type ZodTypeAny } from "zod";
 
 import { bundleDirFor } from "../actions.js";
-import { getProposal, loopengHome, readJson } from "../state.js";
+import { CLI_BIN, VERSION } from "../constants.js";
+import { getProposal, loadConfig, loopengHome, readJson } from "../state.js";
 import { readToolSpec } from "../toolgen.js";
 import {
   type StepExec,
@@ -27,9 +28,6 @@ import {
  */
 
 const text = (s: string) => ({ type: "text" as const, text: s });
-
-const STEP_TIMEOUT_MS = 120_000;
-const MAX_OUTPUT_BYTES = 256 * 1024;
 
 /** Load every installed loop's tool.json (skipping loops without one). */
 export function loadInstalledToolSpecs(): ToolSpec[] {
@@ -82,13 +80,14 @@ function inputSchema(spec: ToolSpec): Record<string, ZodTypeAny> {
 function makeStepExec(): StepExec {
   return (cmd, args, opts) =>
     new Promise((resolve) => {
+      const config = loadConfig();
       execFile(
         cmd,
         args,
         {
           cwd: opts.cwd,
-          timeout: STEP_TIMEOUT_MS,
-          maxBuffer: MAX_OUTPUT_BYTES,
+          timeout: config.mcpToolStepTimeoutMs,
+          maxBuffer: config.mcpToolMaxOutputBytes,
           windowsHide: true,
         },
         (error, stdout, stderr) => {
@@ -114,7 +113,7 @@ export function createToolsServer(stepExec: StepExec = makeStepExec()): McpServe
   const specs = loadInstalledToolSpecs();
 
   const server = new McpServer(
-    { name: "loopeng-tools", version: "0.1.0" },
+    { name: `${CLI_BIN}-tools`, version: VERSION },
     {
       capabilities: { tools: {} },
       instructions:

@@ -33,9 +33,11 @@ let home: string;
 
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "loopeng-inst-"));
+  process.env.LOOPENG_HOME = home;
 });
 
 afterEach(async () => {
+  delete process.env.LOOPENG_HOME;
   await rm(home, { recursive: true, force: true });
 });
 
@@ -192,6 +194,30 @@ describe("installClaudeCodeLoop - schedule", () => {
     const loopPath = join(bundleDir, "loop.md");
     // Path is single-quoted so the embedded space cannot split the command.
     expect(plist).toContain(`'${loopPath}'`);
+  });
+
+  it("uses configured Claude runner command and args", async () => {
+    await writeFile(
+      join(home, "config.json"),
+      serialize({
+        runnerCommand: "/Applications/Claude Code/claude",
+        runnerArgs: ["-p", "--model", "claude-sonnet", "--permission-mode", "acceptEdits"]
+      }),
+      "utf8"
+    );
+    const bundleDir = await makeBundle({
+      loopId: "model1",
+      tool: "claude-code",
+      trigger: { kind: "schedule", schedule: "0 9 * * 1", tool: "claude-code" }
+    });
+    const { ctx } = makeCtx();
+
+    await installClaudeCodeLoop(bundleDir, ctx);
+
+    const plist = await readFile(join(ctx.launchAgentsDir, "com.loopeng.model1.plist"), "utf8");
+    expect(plist).toContain(
+      "'/Applications/Claude Code/claude' -p --model claude-sonnet --permission-mode acceptEdits"
+    );
   });
 });
 

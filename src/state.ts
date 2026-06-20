@@ -4,6 +4,7 @@ import {
   readFileSync,
   readdirSync,
   renameSync,
+  statSync,
   writeFileSync
 } from "node:fs";
 import { homedir } from "node:os";
@@ -13,24 +14,41 @@ import type { LoopEngConfig, Proposal, ProposalStatus } from "./types.js";
 const STATE_DIRS = ["digests", "proposals", "bundles", "registry", "log"] as const;
 const APP_DIR_NAME = ".loopeng";
 const APP_CONFIG_FILE = "config.json";
+const DEFAULT_JSON_READ_MAX_BYTES = 8 * 1024 * 1024;
 
-const DEFAULT_CONFIG: LoopEngConfig = {
-  companion: "auto",
-  dailyTokenCap: 100000,
-  pollIntervalMin: 15,
-  scope: "all",
-  recentWindowHours: 4,
-  scanMaxAttempts: 1,
-  scanMaxDigestChars: 60000
-};
+function defaultConfig(): LoopEngConfig {
+  return {
+    companion: "auto",
+    dailyTokenCap: 100000,
+    pollIntervalMin: 15,
+    runnerCommand: "claude",
+    runnerArgs: ["-p"],
+    runnerTimeoutMs: 120_000,
+    claudeProjectsDir: join(homedir(), ".claude", "projects"),
+    codexSessionsDir: join(homedir(), ".codex", "sessions"),
+    scope: "all",
+    recentWindowHours: 4,
+    scanMaxAttempts: 1,
+    scanMaxDigestChars: 60000,
+    eventsMaxBytes: 512 * 1024,
+    eventsKeepLines: 1000,
+    mcpToolStepTimeoutMs: 120_000,
+    mcpToolMaxOutputBytes: 256 * 1024,
+    dashboardBusyTickMs: 333,
+    dashboardRefreshMs: 5000,
+    watcherMarkerDebounceMs: 2000
+  };
+}
 
 export function loopengHome(): string {
   return process.env.LOOPENG_HOME ?? join(homedir(), APP_DIR_NAME);
 }
 
 export function ensureDirs(): void {
+  // loopEng state holds (redacted) session digests and generated loops — keep
+  // the whole tree owner-only so other local users can't read it.
   for (const dir of STATE_DIRS) {
-    mkdirSync(join(loopengHome(), dir), { recursive: true });
+    mkdirSync(join(loopengHome(), dir), { recursive: true, mode: 0o700 });
   }
 }
 
@@ -40,6 +58,10 @@ export function readJson<T>(path: string): T | undefined {
   }
 
   try {
+    const stat = statSync(path);
+    if (!stat.isFile() || stat.size > jsonReadMaxBytes()) {
+      return undefined;
+    }
     return JSON.parse(readFileSync(path, "utf8")) as T;
   } catch {
     return undefined;
@@ -100,7 +122,26 @@ export function inRegistry(name: string, id: string): boolean {
 export function loadConfig(): LoopEngConfig {
   const configFilePath = join(loopengHome(), APP_CONFIG_FILE);
   const loadedConfig = readJson<Partial<LoopEngConfig>>(configFilePath) ?? {};
-  return { ...DEFAULT_CONFIG, ...loadedConfig };
+  return normalizeConfig({ ...defaultConfig(), ...loadedConfig });
+}
+
+export function runnerConfig(): { command: string; args: string[]; timeoutMs: number } {
+  const config = loadConfig();
+  return {
+    command: process.env.LOOPENG_RUNNER_COMMAND ?? config.runnerCommand,
+    args: envRunnerArgs() ?? config.runnerArgs,
+    timeoutMs: envPositiveInteger("LOOPENG_RUNNER_TIMEOUT_MS") ?? config.runnerTimeoutMs
+  };
+}
+
+export function transcriptDirs(): { claudeProjectsDir: string; codexSessionsDir: string } {
+  const config = loadConfig();
+  return {
+    claudeProjectsDir: expandHome(
+      process.env.LOOPENG_CLAUDE_PROJECTS_DIR ?? config.claudeProjectsDir
+    ),
+    codexSessionsDir: expandHome(process.env.LOOPENG_CODEX_SESSIONS_DIR ?? config.codexSessionsDir)
+  };
 }
 
 // The active scope, with the LOOPENG_SCOPE env var winning over config for a
@@ -146,4 +187,79 @@ function proposalPath(proposalId: string): string {
 
 function registryPath(registryName: string): string {
   return join(loopengHome(), "registry", `${registryName}.json`);
+}
+
+function normalizeConfig(config: LoopEngConfig): LoopEngConfig {
+  return {
+    ...config,
+    runnerCommand: stringOr(config.runnerCommand, "claude"),
+    runnerArgs: stringArrayOr(config.runnerArgs, ["-p"]),
+    runnerTimeoutMs: positiveIntegerOr(config.runnerTimeoutMs, 120_000),
+    claudeProjectsDir: expandHome(
+      stringOr(config.claudeProjectsDir, join(homedir(), ".claude", "projects"))
+    ),
+    codexSessionsDir: expandHome(
+      stringOr(config.codexSessionsDir, join(homedir(), ".codex", "sessions"))
+    ),
+    eventsMaxBytes: positiveIntegerOr(config.eventsMaxBytes, 512 * 1024),
+    eventsKeepLines: positiveIntegerOr(config.eventsKeepLines, 1000),
+    mcpToolStepTimeoutMs: positiveIntegerOr(config.mcpToolStepTimeoutMs, 120_000),
+    mcpToolMaxOutputBytes: positiveIntegerOr(config.mcpToolMaxOutputBytes, 256 * 1024),
+    dashboardBusyTickMs: positiveIntegerOr(config.dashboardBusyTickMs, 333),
+    dashboardRefreshMs: positiveIntegerOr(config.dashboardRefreshMs, 5000),
+    watcherMarkerDebounceMs: positiveIntegerOr(config.watcherMarkerDebounceMs, 2000)
+  };
+}
+
+function stringOr(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.length > 0 ? value : fallback;
+}
+
+function stringArrayOr(value: unknown, fallback: string[]): string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string")
+    ? value
+    : fallback;
+}
+
+function positiveIntegerOr(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function envPositiveInteger(name: string): number | undefined {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return undefined;
+  }
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function jsonReadMaxBytes(): number {
+  return envPositiveInteger("LOOPENG_JSON_READ_MAX_BYTES") ?? DEFAULT_JSON_READ_MAX_BYTES;
+}
+
+function envRunnerArgs(): string[] | undefined {
+  const raw = process.env.LOOPENG_RUNNER_ARGS;
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+      return parsed;
+    }
+  } catch {
+    // Fall back to whitespace splitting below.
+  }
+
+  const args = raw.split(/\s+/).filter((item) => item.length > 0);
+  return args.length > 0 ? args : undefined;
+}
+
+function expandHome(path: string): string {
+  if (path === "~") {
+    return homedir();
+  }
+  return path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
 }

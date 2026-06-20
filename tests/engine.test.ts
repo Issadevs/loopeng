@@ -2,7 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ProcessingError, type AnalysisInput, type InferenceExecutor, runEngine } from "../src/engine.js";
+import {
+  defaultRunner,
+  ProcessingError,
+  type AnalysisInput,
+  type InferenceExecutor,
+  runEngine
+} from "../src/engine.js";
 import { readJson, writeJsonAtomic } from "../src/state.js";
 import type { Candidate } from "../src/types.js";
 
@@ -19,6 +25,18 @@ afterEach(async () => {
 });
 
 describe("runEngine", () => {
+  it("uses the configured runner command and args", async () => {
+    const script =
+      "process.stdin.setEncoding('utf8');let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>process.stdout.write(s.toUpperCase()))";
+    writeJsonAtomic(join(home, "config.json"), {
+      runnerCommand: process.execPath,
+      runnerArgs: ["-e", script],
+      runnerTimeoutMs: 5000
+    });
+
+    await expect(defaultRunner()("configured")).resolves.toBe("CONFIGURED");
+  });
+
   it("promotes good candidates, filters junk, and preserves below-threshold watchlist", async () => {
     const response = {
       candidates: [
@@ -122,7 +140,7 @@ describe("runEngine", () => {
 
     const spend = readJson<Record<string, number>>(join(home, "log", "spend.json")) ?? {};
     const today = todayKey();
-    const estimate = Math.ceil(calls[0].length / 4) + 2000;
+    const estimate = Math.ceil(calls[0].length / 3) + 3000;
     expect(spend[today]).toBeGreaterThanOrEqual(estimate);
   });
 });

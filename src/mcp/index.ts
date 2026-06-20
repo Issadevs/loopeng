@@ -19,6 +19,7 @@ import {
   loadConfig,
 } from "../state.js";
 import { readEvents } from "../events.js";
+import { CLI_BIN, VERSION } from "../constants.js";
 import { readBundleManifest, readTrigger } from "../installers/shared.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -39,7 +40,7 @@ function pendingCount(): number {
 
 export function createMcpServer(deps: CliDeps): McpServer {
   const server = new McpServer(
-    { name: "loopeng", version: "0.1.0" },
+    { name: CLI_BIN, version: VERSION },
     {
       capabilities: { tools: {}, resources: {} },
       instructions:

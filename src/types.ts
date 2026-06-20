@@ -58,6 +58,11 @@ export interface LoopEngConfig {
   companion: "auto" | "manual" | "off";
   dailyTokenCap: number;           // default 100000
   pollIntervalMin: number;         // default 15
+  runnerCommand: string;           // command used for Claude Code inference — default "claude"
+  runnerArgs: string[];            // args passed before the prompt — default ["-p"]
+  runnerTimeoutMs: number;         // max engine runner duration — default 120000
+  claudeProjectsDir: string;       // Claude Code transcripts root — default ~/.claude/projects
+  codexSessionsDir: string;        // Codex sessions root — default ~/.codex/sessions
   // What loopEng pays attention to:
   //   "all"     — every Claude Code / Codex session on the machine
   //   "project" — only sessions whose cwd is the project loopEng runs in
@@ -65,4 +70,11 @@ export interface LoopEngConfig {
   recentWindowHours: number;       // a session counts as active within this window — default 4
   scanMaxAttempts: number;         // LLM calls per scan (1 = no retry) — default 1
   scanMaxDigestChars: number;      // max digest text sent per scan — default 60000 (~15k tokens)
+  eventsMaxBytes: number;          // rotate events.jsonl above this size — default 524288
+  eventsKeepLines: number;         // lines kept after event log rotation — default 1000
+  mcpToolStepTimeoutMs: number;    // timeout for generated MCP tool steps — default 120000
+  mcpToolMaxOutputBytes: number;   // max stdout+stderr buffer for MCP tool steps — default 262144
+  dashboardBusyTickMs: number;     // dashboard busy spinner cadence — default 333
+  dashboardRefreshMs: number;      // dashboard data refresh cadence — default 5000
+  watcherMarkerDebounceMs: number; // debounce for trigger marker changes — default 2000
 }

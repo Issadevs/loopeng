@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { loopengHome } from "./state.js";
+import { loadConfig, loopengHome } from "./state.js";
 
 export type EventKind =
   | "digest"
@@ -22,9 +22,6 @@ export interface LoopEngEvent {
   kind: EventKind;
   msg: string; // human-readable single line
 }
-
-const MAX_BYTES = 512 * 1024;
-const KEEP_LINES = 1000;
 
 function logDir(): string {
   return join(loopengHome(), "log");
@@ -49,9 +46,10 @@ export function appendEvent(kind: EventKind, msg: string, t: string): void {
     return;
   }
 
-  if (size > MAX_BYTES) {
+  const config = loadConfig();
+  if (size > config.eventsMaxBytes) {
     const lines = readFileSync(path, "utf8").split("\n").filter((line) => line.length > 0);
-    const kept = lines.slice(-KEEP_LINES);
+    const kept = lines.slice(-config.eventsKeepLines);
     writeFileSync(path, `${kept.join("\n")}\n`, "utf8");
   }
 }

@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { LOOP_LABEL_PREFIX } from "../constants.js";
 import type { BundleManifest } from "../types.js";
 import {
   cronToLaunchdInterval,
@@ -32,7 +33,7 @@ export async function installCodexLoop(
     if (typeof trigger.schedule !== "string") {
       throw new Error("schedule trigger missing 'schedule' field");
     }
-    const label = `com.loopeng.${loopId}`;
+    const label = `${LOOP_LABEL_PREFIX}${loopId}`;
     const plistPath = join(ctx.launchAgentsDir, `${label}.plist`);
     const command = `codex exec --sandbox workspace-write --skip-git-repo-check "$(cat ${shellQuote(loopPath)})"`;
     const intervals = cronToLaunchdInterval(trigger.schedule);

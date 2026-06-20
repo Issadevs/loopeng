@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { CLI_BIN } from "../constants.js";
 
 /**
  * Register the loopeng-tools MCP server in Claude Code's config so the agent
@@ -8,7 +9,7 @@ import { dirname, join } from "node:path";
  * we merge in a single `loopeng-tools` entry, never touching other servers.
  */
 
-export const TOOLS_SERVER_NAME = "loopeng-tools";
+export const TOOLS_SERVER_NAME = `${CLI_BIN}-tools`;
 
 export function claudeJsonPath(homedir: string): string {
   return join(homedir, ".claude.json");
@@ -20,7 +21,7 @@ interface McpServerEntry {
 }
 
 function desiredEntry(): McpServerEntry {
-  return { command: "loopeng", args: ["mcp-tools"] };
+  return { command: CLI_BIN, args: ["mcp-tools"] };
 }
 
 function readConfig(path: string): Record<string, unknown> {

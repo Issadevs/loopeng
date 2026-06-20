@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import type { Candidate, CandidateType, ToolName } from "./types.js";
-import { loadConfig, loopengHome, readJson, writeJsonAtomic } from "./state.js";
+import { loadConfig, loopengHome, readJson, runnerConfig, writeJsonAtomic } from "./state.js";
 import { extractFirstJsonObject } from "./shared/json.js";
 
 export type InferenceExecutor = (promptText: string) => Promise<string>;
@@ -34,8 +34,8 @@ const CANDIDATE_TYPES: CandidateType[] = [
 ];
 
 const TOOL_NAMES: ToolName[] = ["claude-code", "codex"];
-
-const RUNNER_TIMEOUT_MS = 120_000;
+const TOKEN_ESTIMATE_CHARS_PER_TOKEN = 3;
+const TOKEN_ESTIMATE_RESPONSE_RESERVE = 3000;
 
 const ANALYSIS_PROMPT = `You analyze a developer's terminal sessions to identify repetitive tasks that can be fully automated.
 
@@ -88,25 +88,31 @@ export async function runEngine(input: AnalysisInput): Promise<AnalysisOutput> {
   }
 
   // Reserve the budget up front: failed attempts still consume real LLM calls,
-  // so a perpetually-failing runner must not bypass the daily cap.
+  // so a perpetually-failing runner must not bypass the daily cap. Read →
+  // check → write runs synchronously with no await in between, so within a
+  // process it is atomic; writeJsonAtomic's rename keeps the file uncorrupted
+  // even if two processes scan at once (worst case: a lost reservation, i.e. a
+  // small budget overrun — never a crash or corrupt ledger).
   writeJsonAtomic(spendPath, { ...ledger, [today]: (ledger[today] ?? 0) + estimate });
 
   const raw = await callWithRetries(input.runner, prompt);
   return filterCandidates(raw, input);
 }
 
-export function defaultRunner(timeoutMs = RUNNER_TIMEOUT_MS): InferenceExecutor {
+export function defaultRunner(timeoutMs = runnerConfig().timeoutMs): InferenceExecutor {
   return (prompt: string) =>
     new Promise((resolve, reject) => {
-      const child = spawn("claude", ["-p"], { stdio: ["pipe", "pipe", "pipe"] });
+      const runner = runnerConfig();
+      const child = spawn(runner.command, runner.args, { stdio: ["pipe", "pipe", "pipe"] });
       let stdout = "";
       let stderr = "";
       let timedOut = false;
+      const invocation = [runner.command, ...runner.args].join(" ");
 
       const timer = setTimeout(() => {
         timedOut = true;
         child.kill("SIGTERM");
-        reject(new Error(`claude -p timed out after ${timeoutMs}ms`));
+        reject(new Error(`${invocation} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 
       child.stdout.setEncoding("utf8");
@@ -127,7 +133,7 @@ export function defaultRunner(timeoutMs = RUNNER_TIMEOUT_MS): InferenceExecutor 
         if (code === 0) {
           resolve(stdout);
         } else {
-          reject(new Error(`claude -p exited with code ${code}: ${stderr.trim()}`));
+          reject(new Error(`${invocation} exited with code ${code}: ${stderr.trim()}`));
         }
       });
 
@@ -155,7 +161,7 @@ ${input.digests}`;
 }
 
 function estimateTokens(prompt: string): number {
-  return Math.ceil(prompt.length / 4) + 2000;
+  return Math.ceil(prompt.length / TOKEN_ESTIMATE_CHARS_PER_TOKEN) + TOKEN_ESTIMATE_RESPONSE_RESERVE;
 }
 
 async function callWithRetries(runner: InferenceExecutor, prompt: string): Promise<RawEngineResponse> {
