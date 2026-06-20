@@ -1,0 +1,21 @@
+name: gitleaks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scan:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so the whole repo is scanned, not just the tip
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_CONFIG: ${{ github.workspace }}/.gitleaks.toml
+          # gitleaks-action is free for personal/public repos. For an
+          # organization repo, set a GITLEAKS_LICENSE secret.
+          # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}

@@ -28,6 +28,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "scan:secrets": "gitleaks detect --redact --no-banner --config .gitleaks.toml",
+    "prepare": "git config core.hooksPath .githooks || true"
   }
 }

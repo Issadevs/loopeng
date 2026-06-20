@@ -1,0 +1,17 @@
+#!/bin/sh
+# Block commits that would introduce a secret.
+# Enabled via `npm install` (sets core.hooksPath to .githooks); see package.json.
+# Requires gitleaks — install with: brew install gitleaks
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --no-banner --config .gitleaks.toml
+  if [ "$?" -ne 0 ]; then
+    echo "" >&2
+    echo "✖ gitleaks blocked this commit: a potential secret is staged." >&2
+    echo "  • Remove it, or" >&2
+    echo "  • if it's a false positive, allowlist it in .gitleaks.toml" >&2
+    echo "    or add a '# gitleaks:allow' comment on the line." >&2
+    exit 1
+  fi
+else
+  echo "⚠ gitleaks not installed — secret scan skipped (brew install gitleaks)." >&2
+fi

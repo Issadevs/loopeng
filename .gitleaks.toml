@@ -1,0 +1,22 @@
+# gitleaks configuration for loopEng.
+# Runs on every commit (.githooks/pre-commit) and in CI (.github/workflows/gitleaks.yml).
+title = "loopEng gitleaks config"
+
+# Start from gitleaks' built-in rule set, then layer our allowlist on top.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic, non-secret fixtures used by the redaction unit tests"
+# tests/digester.test.ts plants fake credentials to prove redact() removes them.
+# These are NOT real secrets: the JWT is the public jwt.io example token and the
+# Google key is an obvious placeholder. Allowlisted by their exact values so a
+# genuinely new secret in the same file is still caught.
+regexes = [
+  # jwt.io HS256 example token (header.payload prefix is unmistakable)
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.''',
+  # placeholder Google API key
+  '''AIzaSyA1234567890abcdefGHIJKLmnopQRSTuv''',
+  # base64 body of the fake OPENSSH PRIVATE KEY fixture
+  '''b3BlbnNzaC1rZXktdjEAAAAA''',
+]
