@@ -115,17 +115,12 @@ function inboxLines(s: DashboardState, width: number, count: number): string[] {
   if (count <= 0) return [];
   if (s.data.proposals.length === 0) return [fit("(no proposals — press s to scan)", width)];
 
-  const selected = s.data.proposals[s.inboxIndex] ?? s.data.proposals[0];
+  const selected = selectedProposal(s);
   const list = s.data.proposals.slice(0, 4).map((proposal, index) => {
     const marker = index === s.inboxIndex ? "▶ " : "  ";
     return fit(`${marker}${proposal.candidate.id}`, width);
   });
-  const detail = [
-    ...wrapText(selected.candidate.summary, width),
-    `impact: ${selected.candidate.impactEstimate}`,
-    `evidence: ${selected.candidate.occurrences} sessions`,
-    `confidence: ${confidenceBar(selected.candidate.confidence)}`
-  ].map((line) => fit(line, width));
+  const detail = proposalDetailLines(selected, width, { compact: false }).map((line) => fit(line, width));
 
   return fitToCount([...list, "", ...detail], count);
 }
@@ -173,15 +168,12 @@ function compactInboxLines(s: DashboardState, width: number, count: number): str
   if (count <= 0) return [];
   if (s.data.proposals.length === 0) return [fit("(no proposals)", width)];
 
-  const selected = s.data.proposals[s.inboxIndex] ?? s.data.proposals[0];
+  const selected = selectedProposal(s);
   const position = `${s.inboxIndex + 1}/${s.data.proposals.length}`;
   return fitToCount(
     [
       fit(`${position} ${selected.candidate.id}`, width),
-      ...wrapText(selected.candidate.summary, width),
-      fit(`impact: ${selected.candidate.impactEstimate}`, width),
-      fit(`evidence: ${selected.candidate.occurrences}`, width),
-      fit(`confidence: ${Math.round(selected.candidate.confidence * 100)}%`, width)
+      ...proposalDetailLines(selected, width, { compact: true }).map((line) => fit(line, width))
     ],
     count
   );
@@ -215,6 +207,30 @@ function compactActivityLines(s: DashboardState, width: number, count: number): 
     visible.map((event) => fit(`${event.t.slice(11, 16)} ${event.msg}`, width)),
     count
   );
+}
+
+function selectedProposal(s: DashboardState) {
+  return s.data.proposals[s.inboxIndex] ?? s.data.proposals[0];
+}
+
+function proposalDetailLines(
+  proposal: DashboardState["data"]["proposals"][number],
+  width: number,
+  options: { compact: boolean }
+): string[] {
+  const evidence = options.compact
+    ? `evidence: ${proposal.candidate.occurrences}`
+    : `evidence: ${proposal.candidate.occurrences} sessions`;
+  const confidence = options.compact
+    ? `confidence: ${Math.round(proposal.candidate.confidence * 100)}%`
+    : `confidence: ${confidenceBar(proposal.candidate.confidence)}`;
+
+  return [
+    ...wrapText(proposal.candidate.summary, width),
+    `impact: ${proposal.candidate.impactEstimate}`,
+    evidence,
+    confidence
+  ];
 }
 
 function scopeLabel(s: DashboardState): string {
@@ -449,7 +465,6 @@ function colorizeLine(line: string, index: number, s: DashboardState): string {
   if (isBorderOnlyLine(line)) return colorizeBorderLine(line);
   if (line.startsWith("├")) return colorizeTitleLine(line);
 
-  const footerIndex = s.focus === "activity" ? 24 : undefined;
   const content = line.slice(1, -1);
   const left = style(ANSI.border, line[0] ?? "");
   const right = style(ANSI.border, line[line.length - 1] ?? "");
@@ -468,7 +483,7 @@ function colorizeLine(line: string, index: number, s: DashboardState): string {
   if (index === 3 && content.includes("╰")) {
     return `${left}${colorizeCritter(content)}${right}`;
   }
-  if (footerIndex === index || content.includes("[tab]") || content.includes("[y]es")) {
+  if (isFooterContent(content)) {
     return `${left}${style(ANSI.soft, content)}${right}`;
   }
 
@@ -544,6 +559,10 @@ function colorizeBody(content: string): string {
       style(ANSI.info, match)
     )
     .replace(/\b\d+\/\d+\b/g, (match) => style(ANSI.highlight, match));
+}
+
+function isFooterContent(content: string): boolean {
+  return content.includes("[y]es") || content.includes("[tab]") || content.includes("[q]uit");
 }
 
 function style(code: string, text: string): string {

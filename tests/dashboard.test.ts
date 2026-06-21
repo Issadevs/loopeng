@@ -243,6 +243,7 @@ describe("dashboard render content", () => {
   it("includes selected details, focus brackets, and empty hints", () => {
     const rendered = renderDashboard(state({ data: fullData }), 80, 24);
     expect(rendered).toContain("impact: saves ~30 min/week");
+    expect(rendered).toContain("confidence: 82%");
     expect(rendered).toContain("[inbox] (2)");
 
     expect(renderDashboard(state(), 80, 24)).toContain("(no proposals — press s to scan)");
