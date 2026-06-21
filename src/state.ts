@@ -36,7 +36,14 @@ function defaultConfig(): LoopEngConfig {
     mcpToolMaxOutputBytes: 256 * 1024,
     dashboardBusyTickMs: 333,
     dashboardRefreshMs: 5000,
-    watcherMarkerDebounceMs: 2000
+    watcherMarkerDebounceMs: 2000,
+    pipelineMaxPhases: 30,
+    pipelineMaxInstructionChars: 8000,
+    pipelineMaxGateArgv: 32,
+    pipelineMaxAttempts: 10,
+    pipelineDefaultMaxAttempts: 1,
+    pipelineGateTimeoutMs: 120_000,
+    pipelineGateMaxOutputBytes: 1024 * 1024
   };
 }
 
@@ -207,7 +214,14 @@ function normalizeConfig(config: LoopEngConfig): LoopEngConfig {
     mcpToolMaxOutputBytes: positiveIntegerOr(config.mcpToolMaxOutputBytes, 256 * 1024),
     dashboardBusyTickMs: positiveIntegerOr(config.dashboardBusyTickMs, 333),
     dashboardRefreshMs: positiveIntegerOr(config.dashboardRefreshMs, 5000),
-    watcherMarkerDebounceMs: positiveIntegerOr(config.watcherMarkerDebounceMs, 2000)
+    watcherMarkerDebounceMs: positiveIntegerOr(config.watcherMarkerDebounceMs, 2000),
+    pipelineMaxPhases: positiveIntegerOr(config.pipelineMaxPhases, 30),
+    pipelineMaxInstructionChars: positiveIntegerOr(config.pipelineMaxInstructionChars, 8000),
+    pipelineMaxGateArgv: positiveIntegerOr(config.pipelineMaxGateArgv, 32),
+    pipelineMaxAttempts: positiveIntegerOr(config.pipelineMaxAttempts, 10),
+    pipelineDefaultMaxAttempts: positiveIntegerOr(config.pipelineDefaultMaxAttempts, 1),
+    pipelineGateTimeoutMs: positiveIntegerOr(config.pipelineGateTimeoutMs, 120_000),
+    pipelineGateMaxOutputBytes: positiveIntegerOr(config.pipelineGateMaxOutputBytes, 1024 * 1024)
   };
 }
 

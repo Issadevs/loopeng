@@ -77,4 +77,12 @@ export interface LoopEngConfig {
   dashboardBusyTickMs: number;     // dashboard busy spinner cadence — default 333
   dashboardRefreshMs: number;      // dashboard data refresh cadence — default 5000
   watcherMarkerDebounceMs: number; // debounce for trigger marker changes — default 2000
+  // Pipelines (phased orchestration) — every limit is tunable here.
+  pipelineMaxPhases: number;            // max phases per pipeline — default 30
+  pipelineMaxInstructionChars: number;  // max chars in a phase instruction — default 8000
+  pipelineMaxGateArgv: number;          // max argv tokens in a gate command — default 32
+  pipelineMaxAttempts: number;          // upper bound for a phase's maxAttempts — default 10
+  pipelineDefaultMaxAttempts: number;   // attempts when a phase omits maxAttempts — default 1
+  pipelineGateTimeoutMs: number;        // per-gate command timeout — default 120000
+  pipelineGateMaxOutputBytes: number;   // max stdout+stderr buffer per gate — default 1048576
 }

@@ -121,7 +121,14 @@ describe("state", () => {
       mcpToolMaxOutputBytes: 256 * 1024,
       dashboardBusyTickMs: 333,
       dashboardRefreshMs: 5000,
-      watcherMarkerDebounceMs: 2000
+      watcherMarkerDebounceMs: 2000,
+      pipelineMaxPhases: 30,
+      pipelineMaxInstructionChars: 8000,
+      pipelineMaxGateArgv: 32,
+      pipelineMaxAttempts: 10,
+      pipelineDefaultMaxAttempts: 1,
+      pipelineGateTimeoutMs: 120000,
+      pipelineGateMaxOutputBytes: 1024 * 1024
     });
   });
 

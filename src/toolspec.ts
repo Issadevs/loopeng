@@ -64,6 +64,13 @@ function commandBasename(command: string): string {
   return base.toLowerCase().replace(/\.(exe|cmd|bat|ps1)$/, "");
 }
 
+// Is this argv[0] a shell/interpreter that would re-introduce arbitrary code?
+// Shared so anything that runs a user/LLM-provided command (tool steps,
+// pipeline gates) applies the same guard.
+export function isBlockedCommand(command: string): boolean {
+  return BLOCKED_COMMANDS.has(commandBasename(command));
+}
+
 // ── Validation ───────────────────────────────────────────────────────────────
 
 function isRecord(value: unknown): value is Record<string, unknown> {
