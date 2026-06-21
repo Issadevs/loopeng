@@ -19,6 +19,14 @@ import {
   type CliDeps
 } from "../src/cli.js";
 import {
+  defineAction,
+  forgetPipelineAction,
+  listPipelinesAction,
+  runPipelineAction,
+  showPipelineAction
+} from "../src/pipeline-cli.js";
+import { loadPipelineState } from "../src/pipeline.js";
+import {
   addToRegistry,
   getProposal,
   inRegistry,
@@ -385,6 +393,52 @@ describe("scanAction", () => {
     expect(kept).not.toContain("old-0"); // oldest dropped
   });
 
+  it("strips timestamps from the scan prompt to save tokens, keeping the signal", async () => {
+    const dir = join(loopengHome(), "digests");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "alpha.txt"),
+      "=== session alpha tool=claude-code cwd=/w end=2026-06-12T11:00:00.000Z\nU 2026-06-12T11:00:01.000Z did a thing",
+      "utf8"
+    );
+
+    let prompt = "";
+    await scanAction(
+      makeDeps({
+        runner: async (p) => {
+          prompt = p;
+          return JSON.stringify({ candidates: [], watchlist: [], memoryUpdates: [] });
+        }
+      })
+    );
+
+    expect(prompt).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/); // timestamps stripped
+    expect(prompt).toContain("did a thing"); // event content preserved
+    expect(prompt).toContain("alpha"); // the session is still whitelisted for evidence
+  });
+
+  it("tells the user when the scan engine fails (no silent failure)", async () => {
+    const dir = join(loopengHome(), "digests");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "s.txt"),
+      "=== session s tool=claude-code cwd=/w end=2026-06-12T11:00:00.000Z\nU hi",
+      "utf8"
+    );
+
+    lines = [];
+    const result = await scanAction(
+      makeDeps({
+        runner: async () => {
+          throw new Error("runner exploded");
+        }
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    expect(lines.some((l) => l.includes("scan failed") && l.includes("runner exploded"))).toBe(true);
+  });
+
   it("reports an accurate message when a scan exceeds the remaining budget", async () => {
     writeJsonAtomic(join(loopengHome(), "config.json"), { dailyTokenCap: 100 });
     const dir = join(loopengHome(), "digests");
@@ -567,5 +621,139 @@ describe("status and list", () => {
     await statusAction(makeDeps());
     expect(lines.some((l) => l.includes("1234"))).toBe(true);
     expect(lines.some((l) => l.startsWith("last tick:") && !l.includes("never"))).toBe(true);
+  });
+});
+
+describe("pipeline commands", () => {
+  function writePipeline(name: string, body: unknown): string {
+    const path = join(home, `${name}.json`);
+    writeFileSync(path, JSON.stringify(body), "utf8");
+    return path;
+  }
+
+  it("defines a pipeline from a file and lists it", async () => {
+    const file = writePipeline("p", {
+      phases: [
+        { name: "implement", instruction: "build it" },
+        { name: "test", instruction: "run tests", gate: ["true"] }
+      ]
+    });
+    await defineAction(makeDeps(), "ship", { file });
+    expect(lines.some((l) => l.includes('defined "ship"') && l.includes("implement → test"))).toBe(true);
+
+    lines = [];
+    listPipelinesAction(makeDeps());
+    expect(lines.some((l) => l.startsWith("ship: implement → test"))).toBe(true);
+  });
+
+  it("rejects a pipeline whose gate is a shell", async () => {
+    const file = writePipeline("bad", {
+      phases: [{ name: "x", instruction: "y", gate: ["bash", "-c", "echo hi"] }]
+    });
+    await defineAction(makeDeps(), "danger", { file });
+    expect(lines.some((l) => l.includes("not allowed"))).toBe(true);
+  });
+
+  it("runs a pipeline to completion, driving the agent per phase", async () => {
+    const file = writePipeline("ok", {
+      phases: [
+        { name: "implement", instruction: "build it" },
+        { name: "test", instruction: "run tests", gate: ["true"] }
+      ]
+    });
+    await defineAction(makeDeps(), "ok", { file });
+
+    const seen: string[] = [];
+    lines = [];
+    await runPipelineAction(
+      makeDeps({ runner: async (p) => { seen.push(p); return "agent worked"; } }),
+      "ok",
+      {}
+    );
+
+    expect(seen).toHaveLength(2); // one agent call per phase
+    expect(lines.some((l) => l.includes("complete"))).toBe(true);
+    expect(loadPipelineState("ok")).toEqual({ phaseIndex: 0 }); // cleared on success
+  });
+
+  it("drafts a pipeline from a plain-English description via the agent", async () => {
+    const draft =
+      '{"description":"ship","phases":[{"name":"implement","instruction":"build it"},{"name":"test","instruction":"run tests","gate":["npm","test"],"maxAttempts":3}]}';
+    lines = [];
+    await defineAction(
+      makeDeps({ runner: async () => `Here you go:\n${draft}` }),
+      "ai",
+      { describe: "implement the change then test until green" }
+    );
+    expect(lines.some((l) => l.includes('defined "ai"') && l.includes("implement → test"))).toBe(true);
+
+    lines = [];
+    showPipelineAction(makeDeps(), "ai"); // it was actually saved
+    expect(lines.some((l) => l.includes("gate: npm test"))).toBe(true);
+  });
+
+  it("reports a clear error when the model returns no pipeline", async () => {
+    lines = [];
+    await defineAction(makeDeps({ runner: async () => "I can't do that." }), "ai2", {
+      describe: "something"
+    });
+    expect(lines.some((l) => l.includes("could not draft"))).toBe(true);
+  });
+
+  it("shows a pipeline's details and forgets it", async () => {
+    const file = writePipeline("s", {
+      phases: [{ name: "test", instruction: "run tests", gate: ["npm", "test"] }]
+    });
+    await defineAction(makeDeps(), "demo", { file });
+
+    lines = [];
+    showPipelineAction(makeDeps(), "demo");
+    expect(lines.some((l) => l.includes("1. test"))).toBe(true);
+    expect(lines.some((l) => l.includes("gate: npm test"))).toBe(true);
+
+    lines = [];
+    forgetPipelineAction(makeDeps(), "demo");
+    expect(lines.some((l) => l.includes('removed pipeline "demo"'))).toBe(true);
+
+    lines = [];
+    showPipelineAction(makeDeps(), "demo");
+    expect(lines.some((l) => l.includes('no pipeline "demo"'))).toBe(true);
+  });
+
+  it("dry-runs without invoking the agent or gates", async () => {
+    const file = writePipeline("d", {
+      phases: [{ name: "test", instruction: "run tests", gate: ["false"] }]
+    });
+    await defineAction(makeDeps(), "dry", { file });
+
+    lines = [];
+    await runPipelineAction(
+      makeDeps({
+        runner: async () => {
+          throw new Error("agent must not run in dry-run");
+        }
+      }),
+      "dry",
+      { dryRun: true }
+    );
+
+    expect(lines.some((l) => l.includes("dry run"))).toBe(true);
+    expect(lines.some((l) => l.includes("would ask the agent"))).toBe(true);
+    expect(lines.some((l) => l.includes("would check gate: false"))).toBe(true);
+    expect(lines.some((l) => l.includes("complete"))).toBe(true); // walked all phases
+  });
+
+  it("stops on a failing gate and saves resume state", async () => {
+    const file = writePipeline("red", {
+      phases: [{ name: "test", instruction: "run tests", gate: ["false"], maxAttempts: 2 }]
+    });
+    await defineAction(makeDeps(), "red", { file });
+
+    lines = [];
+    await runPipelineAction(makeDeps({ runner: async () => "tried" }), "red", {});
+
+    expect(lines.some((l) => l.includes("gate still failing"))).toBe(true);
+    expect(lines.some((l) => l.includes("resume with"))).toBe(true);
+    expect(loadPipelineState("red")).toEqual({ phaseIndex: 0 }); // saved so re-run resumes here
   });
 });

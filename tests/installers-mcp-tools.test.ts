@@ -3,9 +3,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  CONTROL_SERVER_NAME,
   TOOLS_SERVER_NAME,
   claudeJsonPath,
+  registerControlServer,
   registerToolsServer,
+  withControlServer,
   withLoopEngToolsServer,
 } from "../src/installers/mcp-tools.js";
 
@@ -20,6 +23,29 @@ afterEach(async () => {
 });
 
 const entry = { command: "loopeng", args: ["mcp-tools"] };
+
+describe("withControlServer", () => {
+  it("registers the control server alongside the tools server, preserving both", () => {
+    const a = withControlServer({});
+    expect(a.changed).toBe(true);
+    expect((a.config.mcpServers as Record<string, unknown>)[CONTROL_SERVER_NAME]).toEqual({
+      command: "loopeng",
+      args: ["mcp"],
+    });
+    // Adding the tools server afterwards keeps the control entry.
+    const b = withLoopEngToolsServer(a.config);
+    const servers = b.config.mcpServers as Record<string, unknown>;
+    expect(servers[CONTROL_SERVER_NAME]).toEqual({ command: "loopeng", args: ["mcp"] });
+    expect(servers[TOOLS_SERVER_NAME]).toEqual(entry);
+  });
+
+  it("registerControlServer writes the entry to ~/.claude.json", async () => {
+    const result = registerControlServer(home);
+    expect(result.ok).toBe(true);
+    const written = JSON.parse(await readFile(claudeJsonPath(home), "utf8"));
+    expect(written.mcpServers[CONTROL_SERVER_NAME]).toEqual({ command: "loopeng", args: ["mcp"] });
+  });
+});
 
 describe("withLoopEngToolsServer", () => {
   it("adds the server to an empty config", () => {

@@ -91,6 +91,10 @@ describe("tools", () => {
         "events",
         "loops_list",
         "loops_uninstall",
+        "pipeline_define",
+        "pipeline_run",
+        "pipeline_show",
+        "pipelines_list",
         "proposals_approve",
         "proposals_dismiss",
         "proposals_get",
@@ -268,6 +272,47 @@ describe("tools", () => {
           expect(text.text).toContain("engine down");
         },
       );
+    });
+  });
+
+  describe("pipelines", () => {
+    it("defines, lists, shows, and dry-runs a pipeline", async () => {
+      await withClient(makeDeps(), async (client) => {
+        const defined = await client.callTool({
+          name: "pipeline_define",
+          arguments: {
+            id: "ship",
+            phases: [
+              { name: "implement", instruction: "build it" },
+              { name: "test", instruction: "run tests", gate: ["npm", "test"], maxAttempts: 2 },
+            ],
+          },
+        });
+        expect((defined.content[0] as { text: string }).text).toContain("Defined \"ship\"");
+
+        const list = await client.callTool({ name: "pipelines_list" });
+        expect((list.content[0] as { text: string }).text).toContain("ship");
+
+        const show = await client.callTool({ name: "pipeline_show", arguments: { id: "ship" } });
+        expect((show.content[0] as { text: string }).text).toContain("gate: npm test");
+
+        const dry = await client.callTool({
+          name: "pipeline_run",
+          arguments: { id: "ship", dryRun: true },
+        });
+        expect((dry.content[0] as { text: string }).text).toContain("would ask the agent");
+      });
+    });
+
+    it("rejects a pipeline whose gate is a shell", async () => {
+      await withClient(makeDeps(), async (client) => {
+        const result = await client.callTool({
+          name: "pipeline_define",
+          arguments: { id: "bad", phases: [{ name: "x", instruction: "y", gate: ["bash", "-c", "echo"] }] },
+        });
+        expect((result.content[0] as { text: string }).text).toContain("not allowed");
+        expect(result.isError).toBe(true);
+      });
     });
   });
 

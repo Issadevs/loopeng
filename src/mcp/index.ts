@@ -20,6 +20,16 @@ import {
 } from "../state.js";
 import { readEvents } from "../events.js";
 import { CLI_BIN, VERSION } from "../constants.js";
+import {
+  clearPipelineState,
+  formatPipeline,
+  listPipelineIds,
+  loadPipeline,
+  loadPipelineState,
+  savePipeline,
+  validatePipeline
+} from "../pipeline.js";
+import { pipelineLimits, runPipelineAction } from "../pipeline-cli.js";
 import { readBundleManifest, readTrigger } from "../installers/shared.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -310,6 +320,86 @@ export function createMcpServer(deps: CliDeps): McpServer {
           },
         ],
       };
+    },
+  );
+
+  /* ── Pipelines ─────────────────────────────────────────────────────────── */
+
+  server.tool(
+    "pipelines_list",
+    "List defined pipelines with their phase names and resume position.",
+    async () => {
+      const items = listPipelineIds().map((id) => {
+        const pipeline = loadPipeline(id, pipelineLimits());
+        return {
+          id,
+          phases: pipeline ? pipeline.phases.map((p) => p.name) : [],
+          resumeAtPhase: loadPipelineState(id).phaseIndex + 1,
+        };
+      });
+      return { content: [{ type: "text", text: JSON.stringify(items, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    "pipeline_show",
+    "Show a pipeline's phases, instructions, and gates.",
+    { id: z.string() },
+    async ({ id }) => {
+      const pipeline = loadPipeline(id, pipelineLimits());
+      if (pipeline === undefined) {
+        return { content: [{ type: "text", text: `No pipeline "${id}".` }], isError: true };
+      }
+      return { content: [{ type: "text", text: formatPipeline(pipeline).join("\n") }] };
+    },
+  );
+
+  server.tool(
+    "pipeline_define",
+    "Create or replace a pipeline. Each phase: {name, instruction, gate?, maxAttempts?}. " +
+      "A gate is an argv array run WITHOUT a shell (exit 0 to advance) — never bash/sh/python with -c.",
+    {
+      id: z.string(),
+      description: z.string().optional(),
+      phases: z.array(
+        z.object({
+          name: z.string(),
+          instruction: z.string(),
+          gate: z.array(z.string()).optional(),
+          maxAttempts: z.number().optional(),
+        }),
+      ),
+    },
+    async ({ id, description, phases }) => {
+      try {
+        const pipeline = validatePipeline(
+          { phases, ...(description !== undefined ? { description } : {}) },
+          id,
+          pipelineLimits(),
+        );
+        savePipeline(pipeline);
+        clearPipelineState(id);
+        return {
+          content: [
+            { type: "text", text: `Defined "${id}": ${pipeline.phases.map((p) => p.name).join(" → ")}` },
+          ],
+        };
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : String(e);
+        return { content: [{ type: "text", text: `Invalid pipeline: ${reason}` }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "pipeline_run",
+    "Run or resume a pipeline — one agent run per phase, advancing only when each gate passes. " +
+      "Set dryRun to preview without executing. A real run can take a while.",
+    { id: z.string(), dryRun: z.boolean().optional(), restart: z.boolean().optional() },
+    async ({ id, dryRun, restart }) => {
+      const lines: string[] = [];
+      await runPipelineAction({ ...deps, out: (line) => lines.push(line) }, id, { dryRun, restart });
+      return { content: [{ type: "text", text: lines.join("\n") || "(no output)" }] };
     },
   );
 

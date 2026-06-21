@@ -10,6 +10,7 @@ import { CLI_BIN } from "../constants.js";
  */
 
 export const TOOLS_SERVER_NAME = `${CLI_BIN}-tools`;
+export const CONTROL_SERVER_NAME = CLI_BIN; // `loopeng mcp` control surface
 
 export function claudeJsonPath(homedir: string): string {
   return join(homedir, ".claude.json");
@@ -22,6 +23,33 @@ interface McpServerEntry {
 
 function desiredEntry(): McpServerEntry {
   return { command: CLI_BIN, args: ["mcp-tools"] };
+}
+
+// Pure merge of a single named MCP server entry; other servers are preserved,
+// and an existing entry is normalised to the wanted command/args.
+function withMcpServer(
+  config: Record<string, unknown>,
+  name: string,
+  want: McpServerEntry,
+): { config: Record<string, unknown>; changed: boolean } {
+  const servers =
+    typeof config.mcpServers === "object" &&
+    config.mcpServers !== null &&
+    !Array.isArray(config.mcpServers)
+      ? { ...(config.mcpServers as Record<string, unknown>) }
+      : {};
+
+  const current = servers[name];
+  const same =
+    typeof current === "object" &&
+    current !== null &&
+    JSON.stringify(current) === JSON.stringify(want);
+  if (same) {
+    return { config, changed: false };
+  }
+
+  servers[name] = want;
+  return { config: { ...config, mcpServers: servers }, changed: true };
 }
 
 function readConfig(path: string): Record<string, unknown> {
@@ -48,34 +76,24 @@ function readConfig(path: string): Record<string, unknown> {
 export function withLoopEngToolsServer(
   config: Record<string, unknown>,
 ): { config: Record<string, unknown>; changed: boolean } {
-  const servers =
-    typeof config.mcpServers === "object" &&
-    config.mcpServers !== null &&
-    !Array.isArray(config.mcpServers)
-      ? { ...(config.mcpServers as Record<string, unknown>) }
-      : {};
+  return withMcpServer(config, TOOLS_SERVER_NAME, desiredEntry());
+}
 
-  const want = desiredEntry();
-  const current = servers[TOOLS_SERVER_NAME];
-  const same =
-    typeof current === "object" &&
-    current !== null &&
-    JSON.stringify(current) === JSON.stringify(want);
-
-  if (same) {
-    return { config, changed: false };
-  }
-
-  servers[TOOLS_SERVER_NAME] = want;
-  return { config: { ...config, mcpServers: servers }, changed: true };
+export function withControlServer(
+  config: Record<string, unknown>,
+): { config: Record<string, unknown>; changed: boolean } {
+  return withMcpServer(config, CONTROL_SERVER_NAME, { command: CLI_BIN, args: ["mcp"] });
 }
 
 export type RegisterResult =
   | { ok: true; changed: boolean; path: string }
   | { ok: false; reason: string };
 
-/** Read, merge, and write the loopeng-tools entry into ~/.claude.json. */
-export function registerToolsServer(homedir: string): RegisterResult {
+// Read, apply a merge, and write ~/.claude.json (only when something changed).
+function register(
+  homedir: string,
+  merge: (config: Record<string, unknown>) => { config: Record<string, unknown>; changed: boolean },
+): RegisterResult {
   const path = claudeJsonPath(homedir);
   let config: Record<string, unknown>;
   try {
@@ -84,7 +102,7 @@ export function registerToolsServer(homedir: string): RegisterResult {
     return { ok: false, reason: (e as Error).message };
   }
 
-  const { config: next, changed } = withLoopEngToolsServer(config);
+  const { config: next, changed } = merge(config);
   if (!changed) {
     return { ok: true, changed: false, path };
   }
@@ -96,4 +114,14 @@ export function registerToolsServer(homedir: string): RegisterResult {
     return { ok: false, reason: (e as Error).message };
   }
   return { ok: true, changed: true, path };
+}
+
+/** Register the `loopeng-tools` (callable workflows) server in ~/.claude.json. */
+export function registerToolsServer(homedir: string): RegisterResult {
+  return register(homedir, withLoopEngToolsServer);
+}
+
+/** Register the `loopeng` (control surface) server in ~/.claude.json. */
+export function registerControlServer(homedir: string): RegisterResult {
+  return register(homedir, withControlServer);
 }

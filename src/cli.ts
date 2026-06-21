@@ -29,6 +29,13 @@ import {
 import { CLI_BIN, DAEMON_LABEL, DAEMON_PLIST_FILENAME, VERSION } from "./constants.js";
 import { parseDigestHeader } from "./digester.js";
 import { defaultRunner } from "./engine.js";
+import {
+  defineAction,
+  forgetPipelineAction,
+  listPipelinesAction,
+  runPipelineAction,
+  showPipelineAction
+} from "./pipeline-cli.js";
 import { appendEvent } from "./events.js";
 import { startWatcher, defaultContext } from "./watcher.js";
 import {
@@ -40,7 +47,12 @@ import {
 import { runDashboard } from "./dashboard/shell.js";
 import { runMcpServer } from "./mcp/index.js";
 import { runToolsServer, loadInstalledToolSpecs } from "./mcp/tools.js";
-import { registerToolsServer, TOOLS_SERVER_NAME } from "./installers/mcp-tools.js";
+import {
+  CONTROL_SERVER_NAME,
+  registerControlServer,
+  registerToolsServer,
+  TOOLS_SERVER_NAME
+} from "./installers/mcp-tools.js";
 import {
   type CliDeps,
   bundleDirFor,
@@ -337,6 +349,11 @@ export async function companionAction(deps: CliDeps): Promise<void> {
 export async function listAction(deps: CliDeps): Promise<void> {
   const installed = readJson<string[]>(join(loopengHome(), "registry", "installed.json")) ?? [];
 
+  if (installed.length === 0) {
+    deps.out(`no loops installed yet — run ${CLI_BIN} scan to find some`);
+    return;
+  }
+
   for (const id of installed) {
     const dir = bundleDirFor(getProposal(id), id);
     try {
@@ -417,6 +434,19 @@ export async function registerToolsAction(deps: CliDeps): Promise<void> {
   );
 }
 
+export async function registerControlAction(deps: CliDeps): Promise<void> {
+  const result = registerControlServer(deps.homedir());
+  if (!result.ok) {
+    deps.out(`✗ failed to register ${CONTROL_SERVER_NAME}: ${result.reason}`);
+    return;
+  }
+  deps.out(
+    result.changed
+      ? `✓ registered ${CONTROL_SERVER_NAME} MCP server in ${result.path} — the Claude Code agent can now drive loopEng`
+      : `· ${CONTROL_SERVER_NAME} already registered in ${result.path}`,
+  );
+}
+
 // ── Program assembly ─────────────────────────────────────────────────────────
 export function buildProgram(deps: CliDeps): Command {
   const program = new Command();
@@ -450,6 +480,34 @@ export function buildProgram(deps: CliDeps): Command {
     .command("scan")
     .description("analyze digests and propose loops")
     .action(() => void scanAction(deps));
+
+  program
+    .command("define <id>")
+    .description("define a phased pipeline (from a description, interactively, or JSON)")
+    .option("--describe <text>", "draft the pipeline from a plain-English description (AI)")
+    .option("--file <path>", "read the pipeline JSON from a file instead of asking")
+    .action((id: string, opts: { describe?: string; file?: string }) =>
+      void defineAction(deps, id, opts)
+    );
+
+  program
+    .command("run <id>")
+    .description("run or resume a pipeline, driving the agent one phase at a time")
+    .option("--restart", "start from the first phase instead of resuming")
+    .option("--dry-run", "preview the phases without calling the agent or running gates")
+    .action((id: string, opts: { restart?: boolean; dryRun?: boolean }) =>
+      void runPipelineAction(deps, id, opts)
+    );
+
+  program
+    .command("pipelines [id]")
+    .description("list pipelines, or show one in detail with <id>")
+    .action((id?: string) => (id ? showPipelineAction(deps, id) : listPipelinesAction(deps)));
+
+  program
+    .command("forget <id>")
+    .description("delete a pipeline")
+    .action((id: string) => forgetPipelineAction(deps, id));
 
   program
     .command("review")
@@ -505,6 +563,11 @@ export function buildProgram(deps: CliDeps): Command {
     .command("tools-register")
     .description("register the loopeng-tools MCP server in Claude Code (~/.claude.json)")
     .action(() => void registerToolsAction(deps));
+
+  program
+    .command("mcp-register")
+    .description("register the loopeng control-surface MCP server in Claude Code (~/.claude.json)")
+    .action(() => void registerControlAction(deps));
 
   return program;
 }
