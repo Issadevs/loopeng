@@ -4,6 +4,12 @@ import { deriveMood, messageTone } from "./state.js";
 export const FULL_LAYOUT_MIN_COLS = 60;
 export const FULL_LAYOUT_MIN_ROWS = 16;
 
+// Full-layout row budget. The body (inbox/loops) gets whatever is left after the
+// fixed chrome and the activity feed, so changing ACTIVITY_ROWS re-flows the
+// layout on its own instead of silently desyncing from a hardcoded subtraction.
+const ACTIVITY_ROWS = 4;
+const CHROME_ROWS = 8; // top border, 3 header lines, panel + activity titles, footer, bottom border
+
 export interface RenderOptions {
   color?: boolean;
 }
@@ -19,7 +25,7 @@ export function renderDashboard(
   }
 
   const widths = columnWidths(cols);
-  const bodyRows = Math.max(0, rows - 12);
+  const bodyRows = Math.max(0, rows - CHROME_ROWS - ACTIVITY_ROWS);
   const critter = critterArt(deriveMood(s), s.moodFrame);
   const lines: string[] = [
     topBorder(cols),
@@ -118,7 +124,7 @@ function inboxLines(s: DashboardState, width: number, count: number): string[] {
     ...wrapText(selected.candidate.summary, width),
     `impact: ${selected.candidate.impactEstimate}`,
     `evidence: ${selected.candidate.occurrences} sessions`,
-    `confidence: ${selected.candidate.confidence}`
+    `confidence: ${confidenceBar(selected.candidate.confidence)}`
   ].map((line) => fit(line, width));
 
   return fitToCount([...list, "", ...detail], count);
@@ -131,7 +137,7 @@ function loopLines(s: DashboardState, width: number, count: number): string[] {
   return fitToCount(
     s.data.loops.map((loop, index) => {
       const marker = index === s.loopsIndex ? "▶ " : "  ";
-      return fit(`${marker}${loop.id}  ${loop.kind}  ${loop.tool}`, width);
+      return fit(`${marker}${loop.id} · ${loop.kind} · ${loop.tool}`, width);
     }),
     count
   );
@@ -140,10 +146,10 @@ function loopLines(s: DashboardState, width: number, count: number): string[] {
 function activityLines(s: DashboardState, cols: number): string[] {
   const width = Math.max(0, cols - 2);
   const events = s.data.events;
-  const start = Math.max(0, events.length - 4 - s.activityScroll);
-  const visible = events.slice(start, start + 4);
+  const start = Math.max(0, events.length - ACTIVITY_ROWS - s.activityScroll);
+  const visible = events.slice(start, start + ACTIVITY_ROWS);
 
-  return Array.from({ length: 4 }, (_, index) => {
+  return Array.from({ length: ACTIVITY_ROWS }, (_, index) => {
     const event = visible[index];
     if (!event) return boxedLine("", cols);
     return boxedLine(`${event.t.slice(11, 16)} ${event.msg}`, cols);
@@ -175,7 +181,7 @@ function compactInboxLines(s: DashboardState, width: number, count: number): str
       ...wrapText(selected.candidate.summary, width),
       fit(`impact: ${selected.candidate.impactEstimate}`, width),
       fit(`evidence: ${selected.candidate.occurrences}`, width),
-      fit(`confidence: ${selected.candidate.confidence}`, width)
+      fit(`confidence: ${Math.round(selected.candidate.confidence * 100)}%`, width)
     ],
     count
   );
@@ -386,6 +392,14 @@ function wrapText(text: string, width: number): string[] {
 
 function fitToCount(lines: string[], count: number): string[] {
   return [...lines, ...Array.from({ length: Math.max(0, count - lines.length) }, () => "")].slice(0, count);
+}
+
+// A 0..1 confidence as a percentage plus a 10-cell bar, for quick scanning.
+function confidenceBar(confidence: number): string {
+  const clamped = Math.min(1, Math.max(0, confidence));
+  const pct = Math.round(clamped * 100);
+  const filled = Math.round(clamped * 10);
+  return `${pct}% ${"█".repeat(filled)}${"·".repeat(10 - filled)}`;
 }
 
 function normalizeLines(lines: string[], cols: number, rows: number): string[] {
