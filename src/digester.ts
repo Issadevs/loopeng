@@ -105,6 +105,18 @@ export function digestSession(record: SessionRecord): string {
   return lines.join("\n");
 }
 
+/**
+ * Strip dead weight before sending digests to the LLM: per-event ISO timestamps
+ * (the model cites evidence by event index, not by time) and runs of spaces.
+ * Saves a meaningful share of scan tokens with no loss of signal. Stored digests
+ * keep their timestamps; this only shapes the prompt payload.
+ */
+export function compactDigestForPrompt(text: string): string {
+  return text
+    .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?/g, "")
+    .replace(/[ \t]{2,}/g, " ");
+}
+
 export interface DigestHeader {
   sessionId: string;
   tool: string;

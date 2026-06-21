@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { SessionEvent, SessionRecord } from "../src/types.js";
-import { digestSession, digestSessions, parseDigestHeader, redact } from "../src/digester.js";
+import {
+  compactDigestForPrompt,
+  digestSession,
+  digestSessions,
+  parseDigestHeader,
+  redact
+} from "../src/digester.js";
 
 describe("redact", () => {
   it("redacts every planted secret type while keeping surrounding prose", () => {
@@ -178,6 +184,20 @@ describe("digestSession", () => {
     const digest = digestSession(record);
     const raw = JSON.stringify(record).length;
     expect(digest.length).toBeLessThanOrEqual(raw * 0.1);
+  });
+});
+
+describe("compactDigestForPrompt", () => {
+  it("strips ISO timestamps and extra spaces but keeps the signal", () => {
+    const digest =
+      "=== session s1 tool=claude-code cwd=/x start=2026-06-12T10:00:00.000Z end=2026-06-12T10:05:00.000Z\n" +
+      "U 2026-06-12T10:00:01.000Z Fix the build";
+    const out = compactDigestForPrompt(digest);
+    expect(out).not.toMatch(/\d{4}-\d{2}-\d{2}T/); // no timestamps left
+    expect(out).toContain("session s1");
+    expect(out).toContain("tool=claude-code");
+    expect(out).toContain("U Fix the build"); // event content preserved, single-spaced
+    expect(out.length).toBeLessThan(digest.length); // genuinely smaller
   });
 });
 

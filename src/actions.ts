@@ -22,7 +22,7 @@ import {
   setProposalStatus,
   writeJsonAtomic,
 } from "./state.js";
-import { parseDigestHeader } from "./digester.js";
+import { compactDigestForPrompt, parseDigestHeader } from "./digester.js";
 import { runEngine, type InferenceExecutor as LlmRunner } from "./engine.js";
 import { appendEvent } from "./events.js";
 import { generateBundle } from "./generator.js";
@@ -160,6 +160,7 @@ export async function scanAction(deps: CliDeps): Promise<ActionResult> {
     ensureDirs();
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
+    deps.out(`✗ scan failed: could not prepare loopeng dirs: ${reason}`);
     return { ok: false, reason: `failed to ensure loopeng dirs: ${reason}` };
   }
 
@@ -182,7 +183,13 @@ export async function scanAction(deps: CliDeps): Promise<ActionResult> {
   let output;
   try {
     output = await runEngine({
-      digests,
+      // Trim timestamps from the payload to cut scan tokens (~30%) with no loss
+      // of signal — the model cites evidence by event index, not by time.
+      digests: compactDigestForPrompt(digests),
+      // Keep the FULL on-disk id set as the evidence whitelist: a recurring
+      // pattern accumulates across incremental scans, so a candidate may
+      // legitimately cite earlier sessions not in this scan's payload. Narrowing
+      // it to the payload would drop those candidates entirely.
       knownSessionIds,
       installed,
       dismissed,
@@ -192,6 +199,7 @@ export async function scanAction(deps: CliDeps): Promise<ActionResult> {
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
     appendEvent("scan", `scan failed: ${reason}`, deps.now());
+    deps.out(`✗ scan failed: ${reason}`);
     return { ok: false, reason: `scan engine error: ${reason}` };
   }
 

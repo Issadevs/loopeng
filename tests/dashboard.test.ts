@@ -227,6 +227,12 @@ describe("dashboard reducer", () => {
 });
 
 describe("dashboard render content", () => {
+  it("greets a brand-new user (no sessions, proposals, or loops) with onboarding guidance", () => {
+    const rendered = renderDashboard(state(), 80, 24); // default state = empty/fresh
+    expect(rendered).toContain("use Claude Code or Codex");
+    expect(rendered).not.toContain("all quiet"); // not the reassuring-but-wrong message
+  });
+
   it("shows 'live' when the in-process watcher runs without a daemon", () => {
     const data: DashboardData = { ...emptyData, daemon: "not-installed", sessions: 2 };
     const rendered = renderDashboard(state({ data, live: true }), 80, 24);

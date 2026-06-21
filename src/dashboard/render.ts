@@ -243,12 +243,22 @@ function compactStatusText(s: DashboardState): string {
   return `${s.data.sessions} sess (${scope}) | ${compactWatchStatus(s)} | ${s.data.spendToday}/${s.data.spendCap}`;
 }
 
+// A brand-new user: nothing watched, nothing proposed, nothing installed.
+function isFreshStart(s: DashboardState): boolean {
+  return (
+    s.data.sessions === 0 &&
+    s.data.proposals.length === 0 &&
+    s.data.loops.length === 0
+  );
+}
+
 function headerMessage(s: DashboardState): string {
   if (s.confirm) return `${s.confirm.action} "${s.confirm.targetId}"? [y]es [n]o`;
   if (s.busy) return `${s.busy}${".".repeat((s.spinnerFrame % 3) + 1)}`;
   if (s.flash) return s.flash;
   if (s.data.proposals.length > 0) return `✨ ${s.data.proposals.length} loop idea(s) waiting`;
   if (s.data.tools.length > 0) return `👀 detected ${s.data.tools.join(" + ")}`;
+  if (isFreshStart(s)) return "👋 use Claude Code or Codex — loopEng spots loops to automate";
   return "all quiet — your loops have it covered";
 }
 
@@ -258,6 +268,7 @@ function compactHeaderMessage(s: DashboardState): string {
   if (s.flash) return s.flash;
   if (s.data.proposals.length > 0) return `${s.data.proposals.length} loop idea(s) waiting`;
   if (s.data.tools.length > 0) return `👀 ${s.data.tools.join(" + ")}`;
+  if (isFreshStart(s)) return "👋 code to get started";
   return "all quiet";
 }
 
