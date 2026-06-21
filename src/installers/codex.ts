@@ -1,5 +1,5 @@
 import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { LOOP_LABEL_PREFIX } from "../constants.js";
 import type { BundleManifest } from "../types.js";
 import {
@@ -9,6 +9,7 @@ import {
   readBundleManifest,
   readTrigger,
   shellQuote,
+  validateLoopId,
   writeBundleManifest,
   type InstallContext
 } from "./shared.js";
@@ -27,6 +28,7 @@ export async function installCodexLoop(
   const manifest = readBundleManifest(bundleDir);
   const trigger = readTrigger(bundleDir);
   const loopId = manifest.loopId;
+  validateLoopId(loopId);
   const loopPath = join(bundleDir, "loop.md");
 
   if (trigger.kind === "schedule") {
@@ -35,6 +37,11 @@ export async function installCodexLoop(
     }
     const label = `${LOOP_LABEL_PREFIX}${loopId}`;
     const plistPath = join(ctx.launchAgentsDir, `${label}.plist`);
+    const resolvedPlist = resolve(plistPath);
+    const resolvedDir = resolve(ctx.launchAgentsDir) + sep;
+    if (!resolvedPlist.startsWith(resolvedDir)) {
+      throw new Error(`plist path escapes launchAgentsDir: ${plistPath}`);
+    }
     const command = `codex exec --sandbox workspace-write --skip-git-repo-check "$(cat ${shellQuote(loopPath)})"`;
     const intervals = cronToLaunchdInterval(trigger.schedule);
     const plist = plistFor(label, ["/bin/sh", "-c", command], intervals);

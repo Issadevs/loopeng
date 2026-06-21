@@ -16,7 +16,7 @@ export default function Fable() {
       <div className="rounded-lg border border-border bg-raised px-6 py-8 sm:px-10 sm:py-10">
         <div className="grid grid-cols-1 gap-8 md:grid-cols-2 md:items-center">
           <div className="flex flex-col gap-3">
-            <span className="font-mono text-xs uppercase tracking-[0.2em] text-amber">
+            <span className="font-mono text-xs uppercase tracking-[0.16em] text-amber">
               {fableContent.tag}
             </span>
             <h3 className="font-serif text-2xl leading-tight text-text sm:text-3xl">

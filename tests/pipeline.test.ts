@@ -98,6 +98,20 @@ describe("validatePipeline", () => {
     ).toThrow(/maxAttempts/);
   });
 
+  it("keeps workingDir inside the current workspace", () => {
+    expect(
+      validatePipeline({ workingDir: "packages/api", phases: [phase("a")] }, "x").workingDir
+    ).toBe(join("packages", "api"));
+
+    expect(() => validatePipeline({ workingDir: "/tmp", phases: [phase("a")] }, "x")).toThrow(/workingDir/);
+    expect(() => validatePipeline({ workingDir: "../outside", phases: [phase("a")] }, "x")).toThrow(
+      /workingDir/
+    );
+    expect(() => validatePipeline({ workingDir: "packages/../../outside", phases: [phase("a")] }, "x")).toThrow(
+      /workingDir/
+    );
+  });
+
   it("fills the default maxAttempts and honors injected limits", () => {
     // Default-filled when omitted.
     const p = validatePipeline({ phases: [phase("a")] }, "x");

@@ -31,6 +31,7 @@ export interface DashboardState {
   busy?: string;
   quit?: boolean;
   live?: boolean; // the in-process watcher is running (dashboard is watching live)
+  help?: boolean; // help overlay is open
 }
 
 export type DashboardAction =
@@ -133,6 +134,15 @@ function reduceKey(s: DashboardState, key: string): { state: DashboardState; eff
       return { state: { ...rest, flash: "cancelled" } };
     }
 
+    return { state: s };
+  }
+
+  if (key === "h" || key === "?") {
+    return { state: { ...s, help: !s.help, flash: undefined } };
+  }
+
+  if (s.help) {
+    if (key === "esc") return { state: { ...s, help: false } };
     return { state: s };
   }
 

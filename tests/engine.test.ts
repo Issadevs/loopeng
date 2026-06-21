@@ -92,6 +92,16 @@ describe("runEngine", () => {
     expect(calls).toBe(1);
   });
 
+  it("rejects candidate ids that cannot be stored as proposal ids", async () => {
+    const runner = jsonRunner({
+      candidates: [candidate("../escape")],
+      watchlist: [],
+      memoryUpdates: []
+    });
+
+    await expect(runEngine(baseInput({ runner }))).rejects.toThrow(/candidates\[0\]\.id must match/);
+  });
+
   it("honors scanMaxAttempts from config for the retry count", async () => {
     writeJsonAtomic(join(home, "config.json"), { scanMaxAttempts: 3 });
 

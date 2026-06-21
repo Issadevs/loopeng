@@ -18,9 +18,9 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "loopEng — your manual workflows become tools your agents call",
+  title: "loopEng | Turn repeated terminal work into callable MCP tools",
   description:
-    "loopEng watches what you do by hand in the terminal and turns the steps you keep repeating into callable MCP tools — so your AI agents can do them for you.",
+    "loopEng watches repeated terminal work across Claude Code and Codex sessions, then turns approved habits into callable MCP tools.",
 };
 
 export default function RootLayout({
@@ -30,7 +30,7 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="fr"
+      lang="en"
       className={`${instrumentSerif.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
       <body className="min-h-full font-mono">

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readJson, writeJsonAtomic } from "../src/state.js";
-import { tick, type WatchContext } from "../src/watcher.js";
+import { terminalCommandForArgv, tick, type WatchContext } from "../src/watcher.js";
 
 let home: string;
 let claudeDir: string;
@@ -143,6 +143,14 @@ describe("watcher tick", () => {
 
     const watchState = readJson<{ files: Record<string, number> }>(join(home, "log", "watch.json"));
     expect(watchState?.files[resolve(garbagePath)]).toBe((await stat(garbagePath)).mtimeMs);
+  });
+});
+
+describe("terminalCommandForArgv", () => {
+  it("shell-quotes argv tokens before embedding them in Terminal", () => {
+    const command = terminalCommandForArgv(["loopeng", "companion", "name with spaces", "bad\"; rm -rf /"]);
+
+    expect(command).toBe("loopeng companion 'name with spaces' 'bad\"; rm -rf /'");
   });
 });
 

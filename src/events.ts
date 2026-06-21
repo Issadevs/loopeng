@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { loadConfig, loopengHome } from "./state.js";
@@ -33,11 +33,13 @@ function eventsPath(): string {
 
 export function appendEvent(kind: EventKind, msg: string, t: string): void {
   const dir = logDir();
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  chmodSync(dir, 0o700);
 
   const path = eventsPath();
   const event: LoopEngEvent = { t, kind, msg: msg.replace(/[\r\n]+/g, " ") };
-  appendFileSync(path, `${JSON.stringify(event)}\n`, "utf8");
+  appendFileSync(path, `${JSON.stringify(event)}\n`, { encoding: "utf8", mode: 0o600 });
+  chmodSync(path, 0o600);
 
   let size: number;
   try {
@@ -50,7 +52,8 @@ export function appendEvent(kind: EventKind, msg: string, t: string): void {
   if (size > config.eventsMaxBytes) {
     const lines = readFileSync(path, "utf8").split("\n").filter((line) => line.length > 0);
     const kept = lines.slice(-config.eventsKeepLines);
-    writeFileSync(path, `${kept.join("\n")}\n`, "utf8");
+    writeFileSync(path, `${kept.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
+    chmodSync(path, 0o600);
   }
 }
 

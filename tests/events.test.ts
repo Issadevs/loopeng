@@ -1,5 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -70,6 +70,7 @@ describe("appendEvent + readEvents", () => {
     for (const line of raw) {
       expect(() => JSON.parse(line)).not.toThrow();
     }
+    expect(statSync(eventsPath()).mode & 0o777).toBe(0o600);
 
     const all = readEvents(10);
     expect(all.map((e) => e.msg)).toEqual(["first", "second", "third"]);

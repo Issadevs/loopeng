@@ -21,22 +21,16 @@ export default function Nav() {
     let active = true;
     (async () => {
       try {
-        const res = await fetch(
-          "https://api.github.com/repos/issadevs/loopeng"
-        );
+        const res = await fetch("https://api.github.com/repos/issadevs/loopeng");
         if (!res.ok) return;
         const data: unknown = await res.json();
-        const count = (data as { stargazers_count?: unknown })
-          ?.stargazers_count;
+        const count = (data as { stargazers_count?: unknown })?.stargazers_count;
         if (active && typeof count === "number" && Number.isFinite(count)) {
           setStars(count);
         }
-      } catch {
-      }
+      } catch { /* keep fallback */ }
     })();
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
   return (
@@ -53,7 +47,7 @@ export default function Nav() {
           className="flex items-center gap-2 font-mono text-amber transition-colors hover:text-amber-bright"
         >
           <span aria-hidden="true" className="text-sm">
-            (◕ω◕)
+            (◕◡◕)
           </span>
           <span className="text-sm font-medium">loopEng</span>
         </a>

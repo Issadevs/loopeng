@@ -9,7 +9,7 @@ export default function Footer() {
     <footer className="border-t border-border">
       <div className="mx-auto w-full max-w-5xl px-6 py-16">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted">{footerContent.copyright}</p>
+          <p className="font-mono text-sm text-dim">{footerContent.copyright}</p>
           <nav className="flex flex-wrap gap-x-6 gap-y-2">
             {footerContent.links.map((link) => {
               const external = link.href.startsWith("http");
@@ -17,10 +17,8 @@ export default function Footer() {
                 <a
                   key={link.label}
                   href={link.href}
-                  className="text-sm text-muted transition-colors hover:text-amber"
-                  {...(external
-                    ? { target: "_blank", rel: "noreferrer" }
-                    : {})}
+                  className="font-mono text-sm text-muted transition-colors hover:text-amber"
+                  {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
                 >
                   {link.label}
                 </a>
@@ -29,11 +27,11 @@ export default function Footer() {
           </nav>
         </div>
 
-        <div className="my-12 flex justify-center">
-          <Critter mood="idle" animate={false} size={1.6} />
+        <div className="my-10 flex justify-center">
+          <Critter mood="idle" animate size={1.5} />
         </div>
 
-        <p className="font-serif text-lg italic text-muted">
+        <p className="text-center font-serif text-base italic text-muted">
           {footerContent.tagline}
         </p>
       </div>

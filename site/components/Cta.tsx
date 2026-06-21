@@ -29,7 +29,7 @@ export default function Cta() {
 
         <p className="text-sm text-muted">
           {ctaContent.sub}
-          <code className="rounded bg-inset px-1.5 py-0.5 font-mono text-amber">
+          <code className="rounded-sm bg-inset px-1.5 py-0.5 font-mono text-amber">
             {ctaContent.subCode}
           </code>
         </p>

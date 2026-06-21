@@ -26,7 +26,7 @@ function CritterGlyph({ face }: { face: Face }) {
         {eye}
         {" ‿ "}
         {eye}
-        {")\n ┗┛ ┗┛"}
+        {")\n ╰───╯"}
       </>
     );
   }
@@ -37,7 +37,7 @@ function CritterGlyph({ face }: { face: Face }) {
         {eye}
         {" ▿ "}
         {eye}
-        {")\n ┗┛ ┗┛"}
+        {")\n ╰───╯"}
       </>
     );
   }
@@ -46,9 +46,9 @@ function CritterGlyph({ face }: { face: Face }) {
     <>
       {" ∧   ∧\n("}
       {eye}
-      {" ω "}
+      {" ◡ "}
       {eye}
-      {")\n ┗┛ ┗┛"}
+      {")\n ╰───╯"}
     </>
   );
 }

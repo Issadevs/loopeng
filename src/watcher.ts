@@ -38,6 +38,18 @@ export interface WatchContext {
   now: () => string;
 }
 
+function shellArg(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function appleScriptString(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+export function terminalCommandForArgv(argv: string[]): string {
+  return (argv.length > 0 ? argv : [CLI_BIN]).map(shellArg).join(" ");
+}
+
 export interface TickResult {
   digested: string[];
   markersConsumed: number;
@@ -174,12 +186,12 @@ export function defaultContext(): WatchContext {
     claudeProjectsDir: dirs.claudeProjectsDir,
     codexSessionsDir: dirs.codexSessionsDir,
     spawn(argv: string[]): number | undefined {
-      const command = argv.join(" ");
+      const command = terminalCommandForArgv(argv);
       const child =
         platform() === "darwin"
           ? childSpawn(
               "osascript",
-              ["-e", `tell application "Terminal" to do script "${command}"`],
+              ["-e", `tell application "Terminal" to do script "${appleScriptString(command)}"`],
               { detached: true, stdio: "ignore" }
             )
           : childSpawn(argv[0] ?? CLI_BIN, argv.slice(1), {

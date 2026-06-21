@@ -5,12 +5,14 @@ import { useEffect, useState } from "react";
 interface CopyButtonProps {
   value: string;
   label?: string;
+  copiedLabel?: string;
   className?: string;
 }
 
 export default function CopyButton({
   value,
   label = "copy",
+  copiedLabel = "copied ✓",
   className = "",
 }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
@@ -34,10 +36,10 @@ export default function CopyButton({
     <button
       type="button"
       onClick={handleClick}
-      aria-label={copied ? "copied" : `copy ${label}`}
+      aria-label={copied ? copiedLabel : label}
       className={`font-mono text-sm text-muted transition-colors hover:text-amber ${className}`}
     >
-      {copied ? "copied ✓" : label}
+      {copied ? copiedLabel : label}
     </button>
   );
 }

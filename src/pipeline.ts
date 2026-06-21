@@ -10,7 +10,7 @@
  * or running real commands.
  */
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, normalize } from "node:path";
 
 import { loopengHome, readJson, writeJsonAtomic } from "./state.js";
 import { extractFirstJsonObject } from "./shared/json.js";
@@ -111,6 +111,22 @@ function validateGate(value: unknown, path: string, limits: PipelineLimits): str
   return value as string[];
 }
 
+function validateWorkingDir(value: unknown): string {
+  const workingDir = reqString(value, "workingDir", MAX_ARGV_TOKEN_CHARS);
+  const segments = workingDir.split(/[\\/]+/);
+
+  if (
+    isAbsolute(workingDir) ||
+    /^[A-Za-z]:[\\/]/.test(workingDir) ||
+    workingDir.startsWith("\\\\") ||
+    segments.includes("..")
+  ) {
+    throw new PipelineError("workingDir must be a relative path inside the current workspace");
+  }
+
+  return normalize(workingDir);
+}
+
 function validatePhase(value: unknown, path: string, limits: PipelineLimits): PipelinePhase {
   if (!isRecord(value)) {
     throw new PipelineError(`${path} must be an object`);
@@ -172,7 +188,7 @@ export function validatePipeline(
     pipeline.description = reqString(value.description, "description", 200);
   }
   if (value.workingDir !== undefined) {
-    pipeline.workingDir = reqString(value.workingDir, "workingDir", MAX_ARGV_TOKEN_CHARS);
+    pipeline.workingDir = validateWorkingDir(value.workingDir);
   }
   return pipeline;
 }

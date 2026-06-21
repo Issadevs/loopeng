@@ -53,6 +53,7 @@ describe("state", () => {
     writeJsonAtomic(path, value);
 
     expect(readJson<typeof value>(path)).toEqual(value);
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
   });
 
   it("returns undefined for missing JSON", async () => {

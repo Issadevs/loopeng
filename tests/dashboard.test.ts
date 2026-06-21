@@ -48,7 +48,7 @@ const fullData: DashboardData = {
   ],
   events: Array.from({ length: 6 }, (_, index) => ({
     t: `2026-06-12T0${index}:00:00.000Z`,
-    kind: "event",
+    kind: (["scan", "propose", "approve", "install", "error", "digest"] as const)[index % 6],
     msg: `event ${index}`
   }))
 };

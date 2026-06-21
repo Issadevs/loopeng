@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -175,14 +176,18 @@ export function readBundleManifest(bundleDir: string): BundleManifest {
 
 /** Write the bundle's manifest.json to disk (2-space indent, trailing newline). */
 export function writeBundleManifest(bundleDir: string, manifest: BundleManifest): void {
-  mkdirSync(bundleDir, { recursive: true });
-  writeFileSync(manifestPath(bundleDir), serialize(manifest), "utf8");
+  mkdirSync(bundleDir, { recursive: true, mode: 0o700 });
+  chmodSync(bundleDir, 0o700);
+  const path = manifestPath(bundleDir);
+  writeFileSync(path, serialize(manifest), { encoding: "utf8", mode: 0o600 });
+  chmodSync(path, 0o600);
 }
 
 /** Serialize a Claude settings object to disk, preserving 2-space indentation. */
 export function writeClaudeSettings(settingsPath: string, settings: unknown): void {
   mkdirSync(dirname(settingsPath), { recursive: true });
-  writeFileSync(settingsPath, serialize(settings), "utf8");
+  writeFileSync(settingsPath, serialize(settings), { encoding: "utf8", mode: 0o600 });
+  chmodSync(settingsPath, 0o600);
 }
 
 /** Read a Claude settings object, returning {} when the file is absent. */

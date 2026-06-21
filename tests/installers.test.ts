@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, readFile, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -352,6 +352,7 @@ describe("installCodexLoop", () => {
     expect(plist).toContain("codex exec --sandbox workspace-write --skip-git-repo-check");
     expect(plist).toContain(join(bundleDir, "loop.md"));
     expect(calls).toEqual([{ cmd: "launchctl", args: ["load", plistPath] }]);
+    expect((await stat(join(bundleDir, "manifest.json"))).mode & 0o777).toBe(0o600);
 
     await uninstallLoop(bundleDir, ctx);
     expect(existsSync(plistPath)).toBe(false);
@@ -374,5 +375,18 @@ describe("installCodexLoop", () => {
     await expect(installCodexLoop(bundleDir, ctx)).rejects.toThrow(
       "codex does not support hook triggers"
     );
+  });
+
+  it("rejects manifest loop ids that are unsafe for launchd paths", async () => {
+    const bundleDir = await makeBundleAt(
+      join(home, "bundles", "unsafe"),
+      "../escape",
+      "codex",
+      { kind: "schedule", schedule: "0 9 * * 1", tool: "codex" }
+    );
+    const { ctx } = makeCtx();
+
+    await expect(installCodexLoop(bundleDir, ctx)).rejects.toThrow(/Invalid loopId/);
+    expect(existsSync(ctx.launchAgentsDir)).toBe(false);
   });
 });

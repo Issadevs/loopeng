@@ -6,6 +6,10 @@
   <strong>loopEng watches what you do by hand in your terminal and turns the steps you keep repeating into callable MCP tools — so your AI agents can do them for you.</strong>
 </p>
 
+<p align="center">
+  <a href="https://loopeng.vercel.app">loopeng.vercel.app</a>
+</p>
+
 ---
 
 ## What is loopEng?

@@ -7,7 +7,7 @@ interface SectionLabelProps {
 export default function SectionLabel({ children }: SectionLabelProps) {
   return (
     <span className="font-mono text-xs uppercase tracking-[0.2em] text-dim">
-      // {children} --
+      {`// ${String(children)}`}
     </span>
   );
 }

@@ -74,7 +74,7 @@ export default function HowItWorks() {
         ref={ref}
         className="relative mt-14 rounded-2xl border border-dashed border-border-bright/70 p-5 sm:p-8"
       >
-        <span className="absolute -top-3 left-6 bg-bg px-2 font-mono text-[10px] uppercase tracking-[0.18em] text-dim">
+        <span className="absolute -top-3 left-6 bg-bg px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-dim">
           🔒 {pipeline.boundary}
         </span>
 

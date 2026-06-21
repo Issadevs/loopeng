@@ -11,12 +11,18 @@ export interface HeroDemo {
   proposal: string;
 }
 
+export interface HeroStat {
+  value: string;
+  label: string;
+}
+
 export interface Hero {
   versionBadge: string;
   h1: string;
   subcopy: string;
   docsHref: string;
   demo: HeroDemo;
+  stats: HeroStat[];
 }
 
 export interface ShiftQuote {
@@ -117,6 +123,33 @@ export interface Cta {
   subCode: string;
 }
 
+export interface InstallStep {
+  title: string;
+  body: string;
+  command: string;
+}
+
+export interface InstallFlow {
+  heading: string;
+  sub: string;
+  steps: InstallStep[];
+  requirements: string;
+  options: string[];
+}
+
+export interface OperateCard {
+  title: string;
+  command: string;
+  body: string;
+  bullets: string[];
+}
+
+export interface Operate {
+  heading: string;
+  sub: string;
+  cards: OperateCard[];
+}
+
 export interface FooterLink {
   label: string;
   href: string;
@@ -140,15 +173,19 @@ export interface SiteContent {
   fable: Fable;
   neverGuilt: string;
   faq: FaqItem[];
+  installFlow: InstallFlow;
+  operate: Operate;
   cta: Cta;
   footer: Footer;
   sectionLabels: {
+    install: string;
     shift: string;
     pipeline: string;
     tool: string;
     impact: string;
     dashboard: string;
     privacy: string;
+    operate: string;
     faq: string;
   };
   readDocs: string;
@@ -157,17 +194,22 @@ export interface SiteContent {
   loopengLabel: string;
   privacyCardTitle: string;
   neverGuiltEmphasis: string;
+  copyLabel: string;
+  copiedLabel: string;
 }
 
 export const INSTALL_CMD =
   "curl -fsSL https://raw.githubusercontent.com/issadevs/loopeng/main/install.sh | bash";
+export const SETUP_CMD = "loopeng setup";
 export const REPO_URL = "https://github.com/issadevs/loopeng";
 export const README_URL = "https://github.com/issadevs/loopeng#readme";
 export const GITHUB_STARS_FALLBACK = 677;
 
 const contentEn: SiteContent = {
   nav: [
+    { label: "install", href: "#install" },
     { label: "how it works", href: "#how" },
+    { label: "operate", href: "#operate" },
     { label: "the tool", href: "#tool" },
     { label: "faq", href: "#faq" },
   ],
@@ -183,24 +225,29 @@ const contentEn: SiteContent = {
       line2: "all quiet — your tools have it covered",
       proposal: "▶ new proposal: deploy-staging · confidence 0.9",
     },
+    stats: [
+      { value: "local-first", label: "transcripts stay on your machine" },
+      { value: "Claude Code + Codex", label: "session watchers built in" },
+      { value: "MCP-ready", label: "approved habits become callable tools" },
+    ],
   },
 
   shift: {
-    heading: "Redefining engineering productivity.",
+    heading: "The age of prompting is ending.",
     quotes: [
       {
-        text: "True productivity isn't typing faster; it's stopping the need to type the same thing twice.",
-        author: "Software Engineering Maxim",
-        role: "",
+        text: "Don't just prompt. Build the system that does the prompting.",
+        author: "Anthropic Engineer",
+        role: "shared internally",
       },
       {
-        text: "You shouldn't write prompt after prompt. You should orchestrate workflows.",
-        author: "Anonymous Senior Engineer",
+        text: "The engineers who win aren't writing better prompts — they're designing systems that never need to ask the same question twice.",
+        author: "Software Engineering Maxim",
         role: "",
       },
     ],
     closing:
-      "The shift to automated workflows is real — but spotting your patterns takes a toll. loopEng watches out for you and does the heavy lifting.",
+      "loopEng is that system. It watches how you work, finds the patterns, and turns them into tools your agents call — so the loop runs itself.",
   },
 
   pipeline: {
@@ -305,6 +352,35 @@ const contentEn: SiteContent = {
     subline: "Review, approve, dismiss, or snooze — all from the terminal.",
   },
 
+  installFlow: {
+    heading: "Install it once. Start finding loops immediately.",
+    sub: "The setup is exactly what the README promises: install the app, run setup, then review proposals from the dashboard.",
+    steps: [
+      {
+        title: "Install",
+        body: "Fetch the latest release, build it locally, and put the loopeng binary on your PATH.",
+        command: INSTALL_CMD,
+      },
+      {
+        title: "Setup",
+        body: "Write config, install the Claude hook, and load the launchd daemon that watches your sessions.",
+        command: SETUP_CMD,
+      },
+      {
+        title: "Review",
+        body: "Open the terminal dashboard, inspect proposals, approve what deserves to become a loop or MCP tool.",
+        command: "loopeng",
+      },
+    ],
+    requirements:
+      "Requirements: Node 20+, git, the Claude CLI in your PATH, and macOS.",
+    options: [
+      "loopeng setup --companion manual",
+      "loopeng setup --no-daemon",
+      "loopeng scan",
+    ],
+  },
+
   privacy: {
     heading: "It never phones home.",
     paragraph:
@@ -327,6 +403,44 @@ const contentEn: SiteContent = {
 
   neverGuilt:
     "loopEng may suggest, but it never nags. Ignore, snooze, or dismiss — a quiet tool beats a nagging one. Your inbox, your call.",
+
+  operate: {
+    heading: "Use the shell now. Hand control to agents when you're ready.",
+    sub: "loopEng exposes the same system through the terminal, a control-surface MCP server, and generated workflow tools.",
+    cards: [
+      {
+        title: "Dashboard",
+        command: "loopeng",
+        body: "Review proposals, inspect installed loops, and watch background activity in one full-terminal view.",
+        bullets: [
+          "approve, dismiss, snooze, uninstall",
+          "scan on demand or pause the daemon",
+          "status and spend visible at a glance",
+        ],
+      },
+      {
+        title: "Control MCP",
+        command: "loopeng mcp-register",
+        body: "Let Claude Code call loopEng directly through tools like proposals_list, scan, loops_list, and pipeline_run.",
+        bullets: [
+          "registers the loopEng control surface",
+          "works with stdio MCP",
+          "agents can approve proposals and run pipelines",
+        ],
+      },
+      {
+        title: "Pipelines & tools",
+        command:
+          'loopeng define ship-feature --describe "implement, test until green, open a PR"',
+        body: "Capture phased work, gate each step, and expose approved repeated workflows as callable MCP tools on loopeng-tools.",
+        bullets: [
+          "resume stopped phase runs",
+          "gate commands must pass before advancing",
+          "tool steps run as argv arrays, never through a shell",
+        ],
+      },
+    ],
+  },
 
   faq: [
     {
@@ -385,12 +499,14 @@ const contentEn: SiteContent = {
   },
 
   sectionLabels: {
+    install: "INSTALL",
     shift: "THE SHIFT",
     pipeline: "PIPELINE",
     tool: "THE TOOL",
     impact: "IMPACT",
     dashboard: "DASHBOARD",
     privacy: "PRIVACY",
+    operate: "OPERATE",
     faq: "FAQ",
   },
 
@@ -400,51 +516,60 @@ const contentEn: SiteContent = {
   loopengLabel: "loopEng",
   privacyCardTitle: "redacted before anything moves",
   neverGuiltEmphasis: "Your inbox, your call.",
+  copyLabel: "copy",
+  copiedLabel: "copied ✓",
 };
 
 const contentFr: SiteContent = {
   nav: [
+    { label: "installation", href: "#install" },
     { label: "comment ça marche", href: "#how" },
+    { label: "utilisation", href: "#operate" },
     { label: "l'outil", href: "#tool" },
     { label: "faq", href: "#faq" },
   ],
 
   hero: {
     versionBadge: "v0.1.0 · premiers pas",
-    h1: "Ce que tu fais à la main devient un outil que tes agents exécutent.",
+    h1: "Ce que vous faites à la main devient un outil que vos agents exécutent.",
     subcopy:
-      "loopEng observe ta façon de travailler dans le terminal, repère les étapes que tu répètes, et les transforme en outils MCP appelables — pour que tes agents IA les fassent à ta place.",
+      "loopEng observe votre façon de travailler dans le terminal, repère les étapes que vous répétez, et les transforme en outils MCP appelables — pour que vos agents IA les fassent à votre place.",
     docsHref: README_URL,
     demo: {
       line1: "surveillance 5 sessions · démon ✓ · dépense 0/100000",
-      line2: "tout est calme — tes outils gèrent",
+      line2: "tout est calme — vos outils gèrent",
       proposal: "▶ nouvelle proposition : deploy-staging · confiance 0.9",
     },
+    stats: [
+      { value: "local-first", label: "les transcriptions restent sur votre machine" },
+      { value: "Claude Code + Codex", label: "surveillance des sessions incluse" },
+      { value: "MCP-ready", label: "les habitudes approuvées deviennent des outils" },
+    ],
   },
 
   shift: {
-    heading: "Redéfinir la productivité des ingénieurs.",
+    heading: "L'ère du prompting touche à sa fin.",
     quotes: [
       {
-        text: "La vraie productivité, ce n'est pas taper plus vite ; c'est ne plus avoir à taper deux fois la même chose.",
-        author: "Maxime du génie logiciel",
-        role: "",
+        text: "Ne promptez pas. Construisez le système qui prompte à votre place.",
+        author: "Ingénieur chez Anthropic",
+        role: "partagé en interne",
       },
       {
-        text: "Vous ne devriez pas écrire invite après invite. Vous devriez orchestrer des workflows.",
-        author: "Ingénieur senior anonyme",
+        text: "Les ingénieurs qui gagnent n'écrivent pas de meilleurs prompts — ils conçoivent des systèmes qui n'ont jamais besoin de poser deux fois la même question.",
+        author: "Maxime du génie logiciel",
         role: "",
       },
     ],
     closing:
-      "La transition vers des workflows automatisés est réelle — mais repérer vos schémas demande des efforts. loopEng veille pour vous et fait le travail lourd.",
+      "loopEng est ce système. Il observe votre façon de travailler, repère les schémas, et les transforme en outils que vos agents appellent — pour que la boucle tourne seule.",
   },
 
   pipeline: {
-    heading: "D'un réflexe que tu tapes à un outil que tes agents appellent.",
-    sub: "loopEng tourne silencieusement en arrière-plan. Voici le chemin de « je continue à faire ça à la main » à un outil que tes agents IA peuvent invoquer.",
-    boundary: "tout ici reste sur ta machine",
-    outcome: "Ton agent appelle l'outil. loopEng exécute exactement les étapes que tu aurais tapées.",
+    heading: "D'un réflexe que vous tapez à un outil que vos agents appellent.",
+    sub: "loopEng tourne silencieusement en arrière-plan. Voici le chemin de « je continue à faire ça à la main » à un outil que vos agents IA peuvent invoquer.",
+    boundary: "tout ici reste sur votre machine",
+    outcome: "Votre agent appelle l'outil. loopEng exécute exactement les étapes que vous auriez tapées.",
     steps: [
       {
         n: "01",
@@ -455,34 +580,34 @@ const contentFr: SiteContent = {
       {
         n: "02",
         title: "Digérer",
-        desc: "Chaque session est compressée et expurgée en un résumé compact — les secrets sont supprimés avant que quoi que ce soit ne quitte ton disque.",
+        desc: "Chaque session est compressée et expurgée en un résumé compact — les secrets sont supprimés avant que quoi que ce soit ne quitte votre disque.",
         mockLines: ["[digester] session → résumé", "🔒 4 secrets expurgés"],
       },
       {
         n: "03",
         title: "Détecter",
-        desc: "Ton propre claude -p lit les résumés et fait remonter les workflows que tu répètes à la main.",
+        desc: "Votre propre claude -p lit les résumés et fait remonter les workflows que vous répétez à la main.",
         mockLines: ["▶ deploy-staging", "vu 4× · confiance 0.9"],
       },
       {
         n: "04",
         title: "Approuver",
-        desc: "Tu examines la proposition et approuves celles qui ont du sens. Rien n'est généré sans ton accord.",
+        desc: "Vous examinez la proposition et approuvez celles qui ont du sens. Rien n'est généré sans votre accord.",
         mockLines: ["✓ deploy-staging approuvé"],
       },
       {
         n: "05",
         title: "Outil MCP",
-        desc: "loopEng transforme le workflow en un outil MCP appelable — fondé sur les commandes exactes que tu as exécutées — que tes agents invoquent à ta place.",
+        desc: "loopEng transforme le workflow en un outil MCP appelable — fondé sur les commandes exactes que vous avez exécutées — que vos agents invoquent à votre place.",
         mockLines: ["loopeng-tools ▸", "deploy_staging(branch)"],
       },
     ],
   },
 
   toolAnatomy: {
-    heading: "Ton workflow devient un outil que tes agents appellent.",
-    sub: "loopEng lit les vraies commandes de tes sessions, déduit les paramètres des parties qui varient, et écrit un outil appelable — fondé sur ce que tu as réellement fait, et jamais exécuté via un shell.",
-    observedTitle: "ce que loopEng t'a vu faire",
+    heading: "Votre workflow devient un outil que vos agents appellent.",
+    sub: "loopEng lit les vraies commandes de vos sessions, déduit les paramètres des parties qui varient, et écrit un outil appelable — fondé sur ce que vous avez réellement fait, et jamais exécuté via un shell.",
+    observedTitle: "ce que loopEng vous a vu faire",
     observed: [
       "$ git push origin feature-x",
       "$ npm run deploy -- --env staging",
@@ -494,12 +619,12 @@ const contentFr: SiteContent = {
     toolDesc: "Pousser une branche et la déployer en staging.",
     params: [{ name: "branch", type: "string" }],
     steps: ["git push origin ${branch}", "npm run deploy -- --env staging"],
-    callTitle: "ton agent, plus tard",
+    callTitle: "votre agent, plus tard",
     call: 'deploy_staging(branch: "main")',
     safety: [
-      "fondé — uniquement les commandes que tu as exécutées",
+      "fondé — uniquement les commandes que vous avez exécutées",
       "sans shell — les valeurs ne peuvent rien injecter",
-      "ne s'exécute que parce que tu l'as approuvé",
+      "ne s'exécute que parce que vous l'avez approuvé",
     ],
   },
 
@@ -542,6 +667,35 @@ const contentFr: SiteContent = {
     subline: "Examinez, approuvez, rejetez ou reportez — tout depuis le terminal.",
   },
 
+  installFlow: {
+    heading: "Installez-le une fois. Commencez à repérer des boucles immédiatement.",
+    sub: "La mise en route suit exactement le README : installer l'app, lancer le setup, puis examiner les propositions dans le dashboard.",
+    steps: [
+      {
+        title: "Installer",
+        body: "Récupère la dernière version, la build en local, puis place le binaire loopeng dans votre PATH.",
+        command: INSTALL_CMD,
+      },
+      {
+        title: "Configurer",
+        body: "Écrit la configuration, installe le hook Claude et charge le démon launchd qui observe vos sessions.",
+        command: SETUP_CMD,
+      },
+      {
+        title: "Examiner",
+        body: "Ouvrez le dashboard terminal, inspectez les propositions, puis approuvez celles qui méritent de devenir une loop ou un outil MCP.",
+        command: "loopeng",
+      },
+    ],
+    requirements:
+      "Prérequis : Node 20+, git, la CLI Claude dans votre PATH, et macOS.",
+    options: [
+      "loopeng setup --companion manual",
+      "loopeng setup --no-daemon",
+      "loopeng scan",
+    ],
+  },
+
   privacy: {
     heading: "Jamais de connexion externe.",
     paragraph:
@@ -564,6 +718,44 @@ const contentFr: SiteContent = {
 
   neverGuilt:
     "loopEng peut suggérer, mais il ne harcèle jamais. Ignorez, reportez ou rejetez — un outil discret vaut mieux qu'un outil insistant. Votre boîte de réception, votre choix.",
+
+  operate: {
+    heading: "Utilisez le shell tout de suite. Laissez les agents piloter ensuite.",
+    sub: "loopEng expose le même système via le terminal, un serveur MCP de contrôle et des outils de workflow générés.",
+    cards: [
+      {
+        title: "Dashboard",
+        command: "loopeng",
+        body: "Examinez les propositions, inspectez les loops installées et suivez l'activité de fond dans une seule vue terminal.",
+        bullets: [
+          "approuver, rejeter, reporter, désinstaller",
+          "scanner à la demande ou mettre le démon en pause",
+          "statut et consommation visibles d'un coup d'œil",
+        ],
+      },
+      {
+        title: "MCP de contrôle",
+        command: "loopeng mcp-register",
+        body: "Permet à Claude Code d'appeler loopEng directement via des outils comme proposals_list, scan, loops_list et pipeline_run.",
+        bullets: [
+          "enregistre la surface de contrôle loopEng",
+          "fonctionne en MCP stdio",
+          "les agents peuvent approuver des propositions et lancer des pipelines",
+        ],
+      },
+      {
+        title: "Pipelines et outils",
+        command:
+          'loopeng define ship-feature --describe "implémente, teste jusqu’au vert, ouvre une PR"',
+        body: "Capturez un travail en phases, validez chaque étape, puis exposez les workflows approuvés comme outils MCP appelables sur loopeng-tools.",
+        bullets: [
+          "reprend les exécutions arrêtées à la bonne phase",
+          "les commandes de gate doivent réussir avant d'avancer",
+          "les étapes d'outil s'exécutent en argv, jamais via un shell",
+        ],
+      },
+    ],
+  },
 
   faq: [
     {
@@ -599,7 +791,7 @@ const contentFr: SiteContent = {
       a: "Oui. loopEng est gratuit et open source. Clonez-le, lisez-le, contribuez sur GitHub.",
     },
     {
-      q: "Quelles sont les prérequis ?",
+      q: "Quels sont les prérequis ?",
       a: "Node ≥ 20, git, la CLI Claude Code (claude) dans votre PATH, et macOS. La prise en charge des démons Windows/Linux est sur la feuille de route.",
     },
   ],
@@ -622,12 +814,14 @@ const contentFr: SiteContent = {
   },
 
   sectionLabels: {
+    install: "INSTALLATION",
     shift: "LE CHANGEMENT",
     pipeline: "PIPELINE",
     tool: "L'OUTIL",
     impact: "IMPACT",
     dashboard: "TABLEAU DE BORD",
     privacy: "CONFIDENTIALITÉ",
+    operate: "UTILISATION",
     faq: "FAQ",
   },
 
@@ -637,6 +831,8 @@ const contentFr: SiteContent = {
   loopengLabel: "loopEng",
   privacyCardTitle: "expurgé avant tout transfert",
   neverGuiltEmphasis: "Votre boîte de réception, votre choix.",
+  copyLabel: "copier",
+  copiedLabel: "copié ✓",
 };
 
 export function useContent(): SiteContent {

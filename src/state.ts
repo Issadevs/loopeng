@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -55,7 +56,9 @@ export function ensureDirs(): void {
   // loopEng state holds (redacted) session digests and generated loops — keep
   // the whole tree owner-only so other local users can't read it.
   for (const dir of STATE_DIRS) {
-    mkdirSync(join(loopengHome(), dir), { recursive: true, mode: 0o700 });
+    const path = join(loopengHome(), dir);
+    mkdirSync(path, { recursive: true, mode: 0o700 });
+    chmodSync(path, 0o700);
   }
 }
 
@@ -76,10 +79,16 @@ export function readJson<T>(path: string): T | undefined {
 }
 
 export function writeJsonAtomic(path: string, value: unknown): void {
-  mkdirSync(dirname(path), { recursive: true });
+  const dir = dirname(path);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  chmodSync(dir, 0o700);
   const temporaryFilePath = `${path}.tmp`;
-  writeFileSync(temporaryFilePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  writeFileSync(temporaryFilePath, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600
+  });
   renameSync(temporaryFilePath, path);
+  chmodSync(path, 0o600);
 }
 
 export function listProposals(): Proposal[] {

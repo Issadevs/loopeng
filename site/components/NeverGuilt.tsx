@@ -10,11 +10,17 @@ export default function NeverGuilt() {
   const tail = idx >= 0 ? neverGuilt.slice(idx) : "";
   return (
     <section className="mx-auto w-full max-w-5xl px-6 py-12">
-      <div className="flex flex-col items-center gap-4 rounded-lg border border-border bg-raised px-6 py-6 text-center sm:flex-row sm:gap-6 sm:text-left">
-        <div className="shrink-0">
+      <div className="relative overflow-hidden rounded-lg border border-border bg-raised px-6 py-6 sm:flex sm:items-center sm:gap-8 sm:px-10 sm:py-8">
+        {/* Subtle amber glow anchored to the mascot side */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 opacity-[0.03]"
+          style={{ background: "radial-gradient(circle at 0% 50%, var(--amber) 0%, transparent 60%)" }}
+        />
+        <div className="relative shrink-0 text-center sm:text-left">
           <Critter mood="smile" animate={false} />
         </div>
-        <p className="font-mono text-sm text-muted">
+        <p className="relative mt-4 font-mono text-sm leading-relaxed text-muted sm:mt-0">
           {lead}
           {tail && <span className="text-text">{tail}</span>}
         </p>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 
-export type CritterMood = "idle" | "perky" | "celebrate" | "smile";
+export type CritterMood = "idle" | "perky" | "celebrate" | "smile" | "working" | "attentive" | "grumpy";
 
 interface CritterProps {
   mood?: CritterMood;
@@ -10,106 +10,84 @@ interface CritterProps {
   animate?: boolean;
 }
 
-// Each frame is an array of lines. Eye characters are isolated so we can
-// color them amber while keeping the ears/arms in the body text color.
-// Frames within a mood are kept to equal height to avoid layout shift.
-
 const IDLE_FRAMES: string[][] = [
-  ["  ∧   ∧", " (◕ ω ◕)", "  ┗┛ ┗┛"], // open
-  ["  ∧   ∧", " (◕ ω ·)", "  ┗┛ ┗┛"], // glance
-  ["  ∧   ∧", " (— ω —)", "  ┗┛ ┗┛"], // blink
+  ["  ∧   ∧ ", " (◕ ◡ ◕)", "  ╰───╯ "],
+  ["  ∧   ∧ ", " (◕ ◡ ·)", "  ╰───╯ "],
+  ["  ∧   ∧ ", " (─ ◡ ─)", "  ╰───╯ "],
 ];
 
-const PERKY_FRAME: string[] = [" +∧   ∧+", " (◕ ▿ ◕)", "  ┗┛ ┗┛"];
+const PERKY_FRAME: string[] = [" ✦∧   ∧✦", " (◕ ▿ ◕)", "  ╰───╯ "];
+const CELEBRATE_FRAME: string[] = [" ✦∧   ∧✦", " (^ ⌣ ^)", "  ╰───╯ "];
+const SMILE_FRAME: string[] = ["  ∧   ∧ ", " (◕ ‿ ◕)", "  ╰───╯ "];
+const ATTENTIVE_FRAME: string[] = ["  ∧   ∧ ", " (◉ ‿ ◉)", "  ╰───╯ "];
+const GRUMPY_FRAME: string[] = ["  ∧   ∧ ", " (ò ⌢ ó)", "  ╰───╯ "];
 
-const CELEBRATE_FRAME: string[] = [" + ∧   ∧ +", "  (◕ ▿ ◕)", "   \\(^)/"];
+const WORKING_FRAMES: string[][] = [
+  ["  ∧   ∧ ", " (◐ · ◐)", "  ╰───╯ "],
+  ["  ∧   ∧ ", " (◓ · ◓)", "  ╰───╯ "],
+  ["  ∧   ∧ ", " (◑ · ◑)", "  ╰───╯ "],
+  ["  ∧   ∧ ", " (◒ · ◒)", "  ╰───╯ "],
+];
 
-const SMILE_FRAME: string[] = ["  ∧   ∧", " (◕ ‿ ◕)"];
-
-// Per-frame display durations (ms) for the idle cycle.
 const IDLE_DURATIONS = [2600, 500, 120];
+const WORKING_DURATION = 180;
 
 function colorizeEyes(line: string): ReactNode {
-  // Eye glyphs we want to tint amber. Everything else stays as body text.
-  const eyeChars = new Set(["◕", "—", "·", "ω", "▿", "‿"]);
+  const eyeChars = new Set(["◕", "─", "·", "◡", "▿", "‿", "◉", "⌣", "⌢", "ò", "ó", "^", "◐", "◑", "◒", "◓", "✦"]);
   return Array.from(line).map((ch, i) =>
     eyeChars.has(ch) ? (
-      <span key={i} style={{ color: "var(--amber)" }}>
-        {ch}
-      </span>
+      <span key={i} style={{ color: "var(--amber)" }}>{ch}</span>
     ) : (
       <span key={i}>{ch}</span>
     )
   );
 }
 
-export default function Critter({
-  mood = "idle",
-  size,
-  animate = true,
-}: CritterProps) {
+export default function Critter({ mood = "idle", size, animate = true }: CritterProps) {
   const [frameIndex, setFrameIndex] = useState(0);
 
   const isAnimatedIdle = mood === "idle" && animate;
+  const isAnimatedWorking = mood === "working" && animate;
 
   useEffect(() => {
-    if (!isAnimatedIdle) return;
-
-    if (
-      typeof window !== "undefined" &&
-      window.matchMedia &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    ) {
-      // Reduced motion: hold the static open frame.
-      setFrameIndex(0);
-      return;
-    }
+    if (!isAnimatedIdle && !isAnimatedWorking) return;
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
 
     let timer: ReturnType<typeof setTimeout>;
     let current = 0;
 
     const tick = () => {
-      current = (current + 1) % IDLE_FRAMES.length;
+      const frames = isAnimatedWorking ? WORKING_FRAMES : IDLE_FRAMES;
+      current = (current + 1) % frames.length;
       setFrameIndex(current);
-      timer = setTimeout(tick, IDLE_DURATIONS[current]);
+      const delay = isAnimatedWorking ? WORKING_DURATION : IDLE_DURATIONS[current];
+      timer = setTimeout(tick, delay);
     };
 
-    timer = setTimeout(tick, IDLE_DURATIONS[0]);
+    const initial = isAnimatedWorking ? WORKING_DURATION : IDLE_DURATIONS[0];
+    timer = setTimeout(tick, initial);
     return () => clearTimeout(timer);
-  }, [isAnimatedIdle]);
+  }, [isAnimatedIdle, isAnimatedWorking]);
 
   let lines: string[];
-  let minHeight: number;
-
   switch (mood) {
-    case "perky":
-      lines = PERKY_FRAME;
-      minHeight = PERKY_FRAME.length;
-      break;
-    case "celebrate":
-      lines = CELEBRATE_FRAME;
-      minHeight = CELEBRATE_FRAME.length;
-      break;
-    case "smile":
-      lines = SMILE_FRAME;
-      minHeight = SMILE_FRAME.length;
-      break;
+    case "perky":     lines = PERKY_FRAME; break;
+    case "celebrate": lines = CELEBRATE_FRAME; break;
+    case "smile":     lines = SMILE_FRAME; break;
+    case "attentive": lines = ATTENTIVE_FRAME; break;
+    case "grumpy":    lines = GRUMPY_FRAME; break;
+    case "working":   lines = animate ? WORKING_FRAMES[frameIndex] : WORKING_FRAMES[0]; break;
     case "idle":
-    default:
-      lines = isAnimatedIdle ? IDLE_FRAMES[frameIndex] : IDLE_FRAMES[0];
-      minHeight = IDLE_FRAMES[0].length;
-      break;
+    default:          lines = isAnimatedIdle ? IDLE_FRAMES[frameIndex] : IDLE_FRAMES[0]; break;
   }
+
+  const minHeight = Math.max(IDLE_FRAMES[0].length, lines.length);
 
   return (
     <pre
       aria-hidden="true"
       className="font-mono whitespace-pre leading-tight text-text select-none"
-      style={{
-        fontSize: size ? `${size}rem` : undefined,
-        minHeight: `${minHeight * 1.1}em`,
-        margin: 0,
-      }}
+      style={{ fontSize: size ? `${size}rem` : undefined, minHeight: `${minHeight * 1.1}em`, margin: 0 }}
     >
       {lines.map((line, i) => (
         <div key={i}>{colorizeEyes(line)}</div>

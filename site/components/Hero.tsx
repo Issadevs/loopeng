@@ -1,11 +1,13 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState, type CSSProperties } from "react";
 import Critter from "@/components/Critter";
 import LoopEngField from "@/components/LoopEngField";
 import TerminalCard from "@/components/TerminalCard";
 import CopyButton from "@/components/CopyButton";
-import { useContent, INSTALL_CMD } from "@/lib/content";
+import { useContent, INSTALL_CMD, SETUP_CMD, REPO_URL } from "@/lib/content";
+import { useLocale } from "@/lib/i18n";
 
 // Page-load reveal + proposal slide-in keyframes. Kept inline so this
 // component is self-contained. Under prefers-reduced-motion the global CSS
@@ -40,7 +42,8 @@ const SLIDE_IN: CSSProperties = {
 };
 
 export default function Hero() {
-  const { hero, readDocs } = useContent();
+  const { hero, readDocs, copyLabel, copiedLabel } = useContent();
+  const { locale } = useLocale();
   const [showProposal, setShowProposal] = useState(false);
 
   useEffect(() => {
@@ -49,11 +52,7 @@ export default function Hero() {
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    if (reduce) {
-      setShowProposal(true);
-      return;
-    }
-    const t = setTimeout(() => setShowProposal(true), 1600);
+    const t = setTimeout(() => setShowProposal(true), reduce ? 0 : 1600);
     return () => clearTimeout(t);
   }, []);
 
@@ -68,84 +67,141 @@ export default function Hero() {
     <section id="top" className="relative isolate overflow-hidden">
       <LoopEngField />
 
-      <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center px-4 pt-28 pb-20 text-center sm:pt-32 sm:pb-28">
+      <div className="relative z-10 mx-auto flex max-w-6xl flex-col px-4 pt-28 pb-16 text-center sm:pt-32 sm:pb-20">
         <style>{KEYFRAMES}</style>
 
-      {/* Version badge */}
-      <span
-        style={reveal(0)}
-        className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 font-mono text-xs text-muted"
-      >
         <span
-          aria-hidden="true"
-          className="h-1.5 w-1.5 rounded-full bg-amber"
-        />
-        {hero.versionBadge}
-      </span>
+          style={reveal(0)}
+          className="mx-auto inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 font-mono text-xs text-muted"
+        >
+          <span
+            aria-hidden="true"
+            className="h-1.5 w-1.5 rounded-full bg-amber"
+          />
+          {hero.versionBadge}
+        </span>
 
-      {/* Headline */}
-      <h1
-        style={{
-          ...reveal(0.08),
-          fontSize: "clamp(2.75rem, 6vw, 4.5rem)",
-        }}
-        className="mt-6 font-serif leading-[1.05] tracking-tight text-text"
-      >
-        {hero.h1}
-      </h1>
+        <h1
+          style={{
+            ...reveal(0.08),
+            fontSize: "clamp(2.75rem, 6vw, 4.75rem)",
+          }}
+          className="mx-auto mt-6 max-w-5xl font-serif leading-[1.02] tracking-tight text-text"
+        >
+          {hero.h1}
+        </h1>
 
-      {/* Subcopy */}
-      <p
-        style={{ ...reveal(0.16), maxWidth: "60ch" }}
-        className="mt-5 font-mono text-sm text-muted sm:text-base"
-      >
-        {hero.subcopy}
-      </p>
+        <p
+          style={{ ...reveal(0.16), maxWidth: "64ch" }}
+          className="mx-auto mt-5 text-sm text-muted sm:text-base"
+        >
+          {hero.subcopy}
+        </p>
 
-      {/* Install block */}
-      <div id="install" style={reveal(0.24)} className="mt-8 w-full max-w-xl">
-        <div className="flex items-center gap-3 rounded-lg border border-border bg-inset px-4 py-3 text-left">
-          <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-sm text-text">
-            {INSTALL_CMD}
-          </code>
-          <CopyButton value={INSTALL_CMD} className="shrink-0" />
+        <ul
+          style={reveal(0.24)}
+          className="mx-auto mt-8 grid w-full max-w-5xl gap-3 text-left sm:grid-cols-3"
+        >
+          {hero.stats.map((stat) => (
+            <li key={stat.label} className="border border-border bg-raised px-4 py-3">
+              <p className="font-mono text-xs uppercase tracking-[0.16em] text-amber">
+                {stat.value}
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-muted">{stat.label}</p>
+            </li>
+          ))}
+        </ul>
+
+        <div
+          style={reveal(0.32)}
+          className="mx-auto mt-8 grid w-full max-w-4xl gap-3 text-left sm:grid-cols-2"
+        >
+          {[
+            {
+              label: locale === "fr" ? "installer" : "install",
+              command: INSTALL_CMD,
+            },
+            {
+              label: locale === "fr" ? "configurer" : "setup",
+              command: SETUP_CMD,
+            },
+          ].map((item) => (
+            <div key={item.label} className="border border-border bg-inset px-4 py-3">
+              <p className="font-mono text-xs uppercase tracking-[0.16em] text-dim">
+                {item.label}
+              </p>
+              <div className="mt-3 flex items-center gap-3">
+                <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-sm text-text">
+                  {item.command}
+                </code>
+                <CopyButton
+                  value={item.command}
+                  label={copyLabel}
+                  copiedLabel={copiedLabel}
+                  className="shrink-0"
+                />
+              </div>
+            </div>
+          ))}
         </div>
-        <p className="mt-3 font-mono text-sm text-muted">
+
+        <div
+          style={reveal(0.36)}
+          className="mx-auto mt-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-muted"
+        >
           <a
             href={hero.docsHref}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue transition-colors hover:text-amber"
+            className="transition-colors hover:text-amber"
           >
             {readDocs}
           </a>
-        </p>
-      </div>
+          <a
+            href={REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="transition-colors hover:text-amber"
+          >
+            GitHub
+          </a>
+        </div>
 
-      {/* Hero visual: "live" terminal with the critter + demo lines */}
-      <div style={reveal(0.32)} className="mt-12 w-full max-w-xl">
-        <TerminalCard title="live" className="text-left">
-          <div className="flex items-start gap-4">
-            <div className="shrink-0">
-              <Critter mood={showProposal ? "perky" : "idle"} animate />
-            </div>
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <p className="text-muted">{hero.demo.line1}</p>
-              <p>
-                <span className="text-blue">{line2Blue}</span>
-                {line2Rest ? (
-                  <span className="text-muted">{line2Rest}</span>
-                ) : null}
-              </p>
-              {showProposal ? (
-                <p style={SLIDE_IN} className="text-green">
-                  {hero.demo.proposal}
-                </p>
-              ) : null}
-            </div>
+        <div style={reveal(0.44)} className="mt-12 w-full">
+          <div className="overflow-hidden border border-border bg-raised p-2 sm:p-3">
+            <Image
+              src="/dashboard.png"
+              width={1676}
+              height={672}
+              alt="loopEng dashboard showing inbox, installed loops, and background activity"
+              className="h-auto w-full"
+              priority
+            />
           </div>
-        </TerminalCard>
-      </div>
+          <div className="mx-auto mt-4 max-w-3xl">
+            <TerminalCard title="live" className="text-left">
+              <div className="flex items-start gap-4">
+                <div className="shrink-0">
+                  <Critter mood={showProposal ? "perky" : "idle"} animate />
+                </div>
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <p className="text-muted">{hero.demo.line1}</p>
+                  <p>
+                    <span className="text-blue">{line2Blue}</span>
+                    {line2Rest ? (
+                      <span className="text-muted">{line2Rest}</span>
+                    ) : null}
+                  </p>
+                  {showProposal ? (
+                    <p style={SLIDE_IN} className="text-green">
+                      {hero.demo.proposal}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </TerminalCard>
+          </div>
+        </div>
       </div>
     </section>
   );

@@ -25,10 +25,9 @@ export default function Impact() {
       "(prefers-reduced-motion: reduce)",
     ).matches;
 
-    // Reduced motion: render final widths immediately, no observer needed.
     if (prefersReduced) {
-      setInView(true);
-      return;
+      const timer = window.setTimeout(() => setInView(true), 0);
+      return () => window.clearTimeout(timer);
     }
 
     const el = ref.current;

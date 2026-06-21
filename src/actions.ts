@@ -1,7 +1,10 @@
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   readdirSync,
   writeFileSync,
 } from "node:fs";
@@ -51,6 +54,7 @@ const CLAUDE_CONFIG_DIR = ".claude";
 const CLAUDE_SETTINGS_FILE = "settings.json";
 const MACOS_LAUNCH_DIR = "Library";
 const MACOS_AGENTS_DIR = "LaunchAgents";
+const DIGEST_HEADER_READ_BYTES = 8192;
 
 // ── Path helpers ─────────────────────────────────────────────────────────────
 
@@ -88,6 +92,18 @@ function analyzedPath(): string {
   return join(loopengHome(), "registry", "analyzed.json");
 }
 
+function readDigestPrefix(path: string, maxChars: number): string {
+  const fd = openSync(path, "r");
+  try {
+    const maxBytes = Math.max(1, maxChars, DIGEST_HEADER_READ_BYTES);
+    const buffer = Buffer.alloc(maxBytes);
+    const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+    return buffer.toString("utf8", 0, bytesRead);
+  } finally {
+    closeSync(fd);
+  }
+}
+
 // Gather the scan payload. Only digests for sessions not yet analyzed are sent
 // (oldest filename first, capped to MAX_SCAN_DIGEST_CHARS), so we never re-pay
 // for the whole history every scan. `knownSessionIds` stays the full set on
@@ -121,7 +137,7 @@ function readDigests(): { digests: string; knownSessionIds: string[]; pending: s
     if (analyzed.has(id)) {
       continue;
     }
-    const raw = readFileSync(join(dir, name), "utf8");
+    const raw = readDigestPrefix(join(dir, name), maxChars);
     // Respect the active scope: when watching a single project, don't analyze
     // (or pay for) sessions from other projects.
     const header = parseDigestHeader(raw.split("\n", 1)[0] ?? "");
@@ -130,8 +146,7 @@ function readDigests(): { digests: string; knownSessionIds: string[]; pending: s
     }
     // Truncate a single oversized digest to the per-scan cap. Otherwise a
     // digest larger than the daily token budget would be skipped by the engine
-    // on every scan, never marked analyzed, and would wedge the whole queue
-    // (the header — and thus the session id — always survives the cut).
+    // on every scan, never marked analyzed, and would wedge the whole queue.
     const text = raw.length > maxChars ? raw.slice(0, maxChars) : raw;
     // Always include at least one digest so a session still makes progress
     // rather than stalling the queue forever.

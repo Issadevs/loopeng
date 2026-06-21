@@ -36,6 +36,7 @@ const CANDIDATE_TYPES: CandidateType[] = [
 const TOOL_NAMES: ToolName[] = ["claude-code", "codex"];
 const TOKEN_ESTIMATE_CHARS_PER_TOKEN = 3;
 const TOKEN_ESTIMATE_RESPONSE_RESERVE = 3000;
+const LOOP_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 const ANALYSIS_PROMPT = `You analyze a developer's terminal sessions to identify repetitive tasks that can be fully automated.
 
@@ -59,7 +60,7 @@ Respond with a single JSON object:
 {"candidates": [...], "watchlist": [...], "memoryUpdates": ["..."]}
 
 Each candidate must have:
-- id: string
+- id: lowercase slug matching /^[a-z0-9][a-z0-9-]{0,63}$/
 - type: one of the candidate categories
 - summary: string
 - evidence: array of {sessionId: string, events: number[]}
@@ -214,7 +215,7 @@ function validateCandidate(value: unknown, path: string): Candidate {
     throw new ProcessingError(`${path} must be an object`);
   }
 
-  const id = requireString(value.id, `${path}.id`);
+  const id = requireLoopId(value.id, `${path}.id`);
   const type = requireCandidateType(value.type, `${path}.type`);
   const summary = requireString(value.summary, `${path}.summary`);
   const evidence = validateEvidenceArray(value.evidence, `${path}.evidence`);
@@ -332,6 +333,16 @@ function requireString(value: unknown, path: string): string {
   }
 
   return value;
+}
+
+function requireLoopId(value: unknown, path: string): string {
+  const id = requireString(value, path);
+
+  if (!LOOP_ID_RE.test(id)) {
+    throw new ProcessingError(`${path} must match ${LOOP_ID_RE}`);
+  }
+
+  return id;
 }
 
 function requireNonEmptyString(value: unknown, path: string): string {

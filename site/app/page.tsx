@@ -1,12 +1,14 @@
 import Nav from "@/components/Nav";
 import Hero from "@/components/Hero";
 import TheShift from "@/components/TheShift";
+import InstallFlow from "@/components/InstallFlow";
 import HowItWorks from "@/components/HowItWorks";
 import ToolAnatomy from "@/components/ToolAnatomy";
-import Impact from "@/components/Impact";
 import Dashboard from "@/components/Dashboard";
+import Operate from "@/components/Operate";
 import Privacy from "@/components/Privacy";
 import Fable from "@/components/Fable";
+import Impact from "@/components/Impact";
 import NeverGuilt from "@/components/NeverGuilt";
 import Faq from "@/components/Faq";
 import Cta from "@/components/Cta";
@@ -19,12 +21,14 @@ export default function Home() {
       <main>
         <Hero />
         <TheShift />
+        <InstallFlow />
         <HowItWorks />
         <ToolAnatomy />
-        <Impact />
         <Dashboard />
+        <Operate />
         <Privacy />
         <Fable />
+        <Impact />
         <NeverGuilt />
         <Faq />
         <Cta />

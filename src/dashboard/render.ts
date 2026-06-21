@@ -27,13 +27,18 @@ export function renderDashboard(
   const widths = columnWidths(cols);
   const bodyRows = Math.max(0, rows - CHROME_ROWS - ACTIVITY_ROWS);
   const critter = critterArt(deriveMood(s), s.moodFrame);
+
+  const body = s.help
+    ? helpBodyLines(cols, bodyRows)
+    : bodyLines(s, widths, bodyRows);
+
   const lines: string[] = [
     topBorder(cols),
     boxedLine(` ${critter[0]}  ${statusText(s)}`, cols),
     boxedLine(` ${critter[1]}  ${headerMessage(s)}`, cols),
     boxedLine(` ${critter[2]}`, cols),
-    panelTitleLine(s, widths, cols),
-    ...bodyLines(s, widths, bodyRows),
+    s.help ? helpTitleLine(cols) : panelTitleLine(s, widths, cols),
+    ...body,
     activityTitleLine(s.focus, cols),
     ...activityLines(s, cols),
     boxedLine(footerText(s), cols),
@@ -83,6 +88,37 @@ function panelTitleLine(s: DashboardState, widths: { left: number; right: number
     `├${titleSegment(inboxTitle, widths.left)}┬${titleSegment(loopsTitle, widths.right)}┤`,
     cols
   );
+}
+
+function helpTitleLine(cols: number): string {
+  return fit(`├${titleSegment("[help] keyboard shortcuts ", Math.max(0, cols - 2))}┤`, cols);
+}
+
+function helpBodyLines(cols: number, count: number): string[] {
+  const width = Math.max(0, cols - 2);
+  const col = Math.max(0, width - 4);
+  const pad = "  ";
+
+  const entries: [string, string][] = [
+    ["[tab]      ", "switch panel  inbox → loops → activity"],
+    ["[↑↓] [j/k] ", "navigate items / scroll activity"],
+    ["[a]        ", "approve selected proposal              (inbox)"],
+    ["[d]        ", "dismiss selected proposal              (inbox)"],
+    ["[z]        ", "snooze proposal for 7 days             (inbox)"],
+    ["[x]        ", "uninstall selected loop                (loops)"],
+    ["[s]        ", "scan for new patterns                  (all)"],
+    ["[p]        ", "pause / resume the daemon              (all)"],
+    ["[h] or [?] ", "toggle this help overlay               (all)"],
+    ["[q]        ", "quit loopEng dashboard                 (all)"],
+    ["[y] / [n]  ", "confirm / cancel action prompt         (confirm)"],
+    ["[esc]      ", "cancel / close overlay"],
+  ];
+
+  const rendered: string[] = entries.map(([key, desc]) =>
+    fit(`${pad}${fit(key, 12)} ${fit(desc, col - 14)}`, width)
+  );
+
+  return fitToCount(["", ...rendered, ""], count).map((line) => boxedLine(line, cols));
 }
 
 function activityTitleLine(focus: Focus, cols: number): string {
@@ -138,6 +174,22 @@ function loopLines(s: DashboardState, width: number, count: number): string[] {
   );
 }
 
+// Short 3-char kind badges for the activity feed.
+const EVENT_KIND_BADGE: Record<string, string> = {
+  digest:    "dig",
+  scan:      "scn",
+  propose:   "prp",
+  approve:   "apr",
+  dismiss:   "dis",
+  snooze:    "snz",
+  install:   "ins",
+  uninstall: "del",
+  pause:     "pse",
+  resume:    "run",
+  spawn:     "spn",
+  error:     "err",
+};
+
 function activityLines(s: DashboardState, cols: number): string[] {
   const width = Math.max(0, cols - 2);
   const events = s.data.events;
@@ -147,7 +199,8 @@ function activityLines(s: DashboardState, cols: number): string[] {
   return Array.from({ length: ACTIVITY_ROWS }, (_, index) => {
     const event = visible[index];
     if (!event) return boxedLine("", cols);
-    return boxedLine(`${event.t.slice(11, 16)} ${event.msg}`, cols);
+    const badge = EVENT_KIND_BADGE[event.kind] ?? event.kind.slice(0, 3);
+    return boxedLine(`${event.t.slice(11, 16)} [${badge}] ${event.msg}`, cols);
   }).map((line) => fit(line, width + 2));
 }
 
@@ -204,7 +257,10 @@ function compactActivityLines(s: DashboardState, width: number, count: number): 
   if (visible.length === 0) return [fit("(no activity yet)", width)];
 
   return fitToCount(
-    visible.map((event) => fit(`${event.t.slice(11, 16)} ${event.msg}`, width)),
+    visible.map((event) => {
+      const badge = EVENT_KIND_BADGE[event.kind] ?? event.kind.slice(0, 3);
+      return fit(`${event.t.slice(11, 16)} [${badge}] ${event.msg}`, width);
+    }),
     count
   );
 }
@@ -295,23 +351,25 @@ function compactHeaderMessage(s: DashboardState): string {
 }
 
 function footerText(s: DashboardState): string {
+  if (s.help) return "[esc/h] close help";
   if (s.confirm) return "[y]es [n]o";
   if (s.busy) return `${s.busy}… [q]uit`;
 
   switch (s.focus) {
     case "inbox":
-      return "[tab]panel [↑↓]move [a]pprove [d]ismiss [z]snooze [s]can [p]ause [q]uit";
+      return "[tab]panel [↑↓]move [a]pprove [d]ismiss [z]snooze [s]can [p]ause [h]elp [q]uit";
     case "loops":
-      return "[tab]panel [↑↓]move [x]uninstall [s]can [p]ause [q]uit";
+      return "[tab]panel [↑↓]move [x]uninstall [s]can [p]ause [h]elp [q]uit";
     case "activity":
-      return "[tab]panel [↑↓]scroll [s]can [p]ause [q]uit";
+      return "[tab]panel [↑↓]scroll [s]can [p]ause [h]elp [q]uit";
   }
 }
 
 function compactFooterText(s: DashboardState): string {
+  if (s.help) return "[esc/h] close";
   if (s.confirm) return "[y]es [n]o";
   if (s.busy) return `${s.busy} [q]uit`;
-  return "[tab] [j/k] [s]can [p]ause [q]uit";
+  return "[tab] [j/k] [s]can [p]ause [h]elp [q]uit";
 }
 
 // The mascot is the loopEng creature from the logo: cream ears, amber eyes, a
@@ -441,13 +499,13 @@ const ANSI = {
   reset: "\x1b[0m",
   bold: "\x1b[1m",
   dim: "\x1b[2m",
-  border: "\x1b[38;2;58;54;45m", //    --border-bright #3a362d
-  brand: "\x1b[38;2;232;185;111m", // --amber-bright  #e8b96f
-  good: "\x1b[38;2;143;174;126m", //  --green         #8fae7e
-  warn: "\x1b[38;2;214;163;92m", //   --amber         #d6a35c
-  bad: "\x1b[38;2;207;124;90m", //    terracotta      #cf7c5a
-  info: "\x1b[38;2;125;156;192m", //  --blue          #7d9cc0
-  soft: "\x1b[38;2;111;107;99m", //   --text-muted    #6f6b63
+  border: "\x1b[38;2;58;54;45m", //    warm border     #3a362d  (between --border #2e2a24 and --border-bright #464034)
+  brand: "\x1b[38;2;232;185;111m", // --amber-bright   #e8b96f
+  good: "\x1b[38;2;143;174;126m", //  --green          #8fae7e
+  warn: "\x1b[38;2;214;163;92m", //   --amber          #d6a35c
+  bad: "\x1b[38;2;207;124;90m", //    terracotta       #cf7c5a
+  info: "\x1b[38;2;125;156;192m", //  --blue           #7d9cc0
+  soft: "\x1b[38;2;111;107;99m", //   muted terminal   #6f6b63  (darker than --text-muted #9a9487, closer to --text-dim #666156)
   highlight: "\x1b[38;2;232;185;111m" // --amber-bright #e8b96f
 } as const;
 
@@ -486,6 +544,8 @@ function colorizeLine(line: string, index: number, s: DashboardState): string {
   if (isFooterContent(content)) {
     return `${left}${style(ANSI.soft, content)}${right}`;
   }
+
+  if (isHelpBodyLine(content)) return `${left}${colorizeHelpLine(content)}${right}`;
 
   return `${left}${colorizeBody(content)}${right}`;
 }
@@ -547,6 +607,22 @@ function colorizeMessage(content: string): string {
   return style(TONE_ANSI[messageTone(content)], content);
 }
 
+// Map event kind badges to their ANSI color.
+const EVENT_KIND_ANSI: Record<string, string> = {
+  ins: ANSI.good,
+  apr: ANSI.good,
+  run: ANSI.good,
+  prp: ANSI.warn,
+  snz: ANSI.warn,
+  pse: ANSI.warn,
+  err: ANSI.bad,
+  del: ANSI.bad,
+  dis: ANSI.soft,
+  dig: ANSI.soft,
+  scn: ANSI.info,
+  spn: ANSI.info,
+};
+
 function colorizeBody(content: string): string {
   if (content.trim().length === 0) return content;
 
@@ -558,11 +634,34 @@ function colorizeBody(content: string): string {
     .replace(/\b(impact|evidence|confidence|kind|tool):/g, (match) =>
       style(ANSI.info, match)
     )
-    .replace(/\b\d+\/\d+\b/g, (match) => style(ANSI.highlight, match));
+    .replace(/\b\d+\/\d+\b/g, (match) => style(ANSI.highlight, match))
+    .replace(/\[([a-z]{2,4})\]/g, (match, badge: string) => {
+      const color = EVENT_KIND_ANSI[badge];
+      return color ? style(color, match) : style(ANSI.soft, match);
+    });
 }
 
 function isFooterContent(content: string): boolean {
-  return content.includes("[y]es") || content.includes("[tab]") || content.includes("[q]uit");
+  return (
+    content.includes("[y]es") ||
+    content.includes("[tab]") ||
+    content.includes("[q]uit") ||
+    content.includes("[esc/h]")
+  );
+}
+
+function isHelpBodyLine(content: string): boolean {
+  return /^\s+\[[^\]]+\]\s/.test(content);
+}
+
+// Highlight the keybinding bracket pairs in amber, the description in muted.
+function colorizeHelpLine(content: string): string {
+  return content.replace(/(\[[^\]]+\])(.*?)(\([^)]+\))?$/, (_match, key, desc, panel) => {
+    const coloredKey = style(`${ANSI.bold}${ANSI.brand}`, key as string);
+    const coloredDesc = style(ANSI.soft, desc as string);
+    const coloredPanel = panel ? style(ANSI.dim, panel as string) : "";
+    return `${coloredKey}${coloredDesc}${coloredPanel}`;
+  });
 }
 
 function style(code: string, text: string): string {
